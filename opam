@@ -1,0 +1,18 @@
+opam-version: "1.2"
+maintainer: "stephen.dolan@cl.cam.ac.uk"
+authors: ["Stephen Dolan"]
+homepage: "https://github.com/stedolan/crowbar"
+bug-reports: "https://github.com/stedolan/crowbar/issues"
+dev-repo: "https://github.com/stedolan/crowbar.git"
+license: "MIT"
+build:
+[[ "ocaml" "pkg/pkg.ml" "build"
+           "--pinned" "%{pinned}%"]]
+available: [ ocaml-version >= "4.02" ]
+depends: [
+  "ocamlbuild" {build}
+  "ocamlfind" {build}
+  "topkg" {build & >= "0.7.4"}
+  "notty"
+  "cmdliner"
+]
