@@ -1,0 +1,16 @@
+join/bind (v2?)
+
+command line interface:
+  - afl-fuzz mode
+  - quickcheck mode
+  - random fuzzing mode (for me testing, really)
+  - file / file list mode
+  - reproduction mode (seed / file)
+  - select which tests to run
+
+output:
+  - seeds for failed tests
+  - maybe use notty to figure out pretty-printing width
+
+api:
+  - manual testsuite interface?
