@@ -29,6 +29,7 @@ val int64 : Int64.t gen
 val float : float gen
 val bytes : string gen
 val bool : bool gen
+val range : int -> int gen
 
 val guard : bool -> unit
 val bad_test : unit -> 'a

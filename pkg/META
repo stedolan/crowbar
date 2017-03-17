@@ -1,6 +1,6 @@
 description = ""
 version = "0.1"
-requires = "dynlink"
+requires = "ocplib-endian notty.unix afl-persistent str"
 archive(native) = "crowbar.cmxa"
 archive(byte) = "crowbar.cma"
 plugin(native) = "crowbar.cmxs"

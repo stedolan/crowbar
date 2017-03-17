@@ -106,6 +106,11 @@ let bytes = Primitive (fun src ->
   let off2 = getbytes src n in
   Bytes.sub_string src.buf off2 n)
 
+let range n =
+  assert (0 <= n && n < 256);   (* FIXME *)
+  Map ([uint8], fun k -> k mod n)
+
+
 let pp = Format.fprintf
 let pp_int ppf n = pp ppf "%d" n
 let pp_float ppf f = pp ppf "%f" f

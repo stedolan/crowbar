@@ -1,0 +1,4 @@
+test
+*.cm*
+*.o
+output
