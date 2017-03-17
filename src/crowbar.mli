@@ -17,9 +17,11 @@ and ('k, 'res) gens =
   | (::) : 'a gen * ('k, 'res) gens -> ('a -> 'k, 'res) gens
 
 (* re-export stdlib's list
-   We only want to override [] syntax in
-   the argument to Map *)
+   We only want to override [] syntax in the argument to Map *)
 type nonrec +'a list = 'a list = [] | (::) of 'a * 'a list
+
+
+(* some builtin generators for primitive types *)
 
 val int : int gen
 val uint8 : int gen
@@ -35,7 +37,9 @@ val guard : bool -> unit
 val bad_test : unit -> 'a
 
 
-(* Format.fprintf *)
+(* helper functions for printing *)
+
+(* Format.fprintf, renamed *)
 val pp : Format.formatter -> ('a, Format.formatter, unit) format -> 'a
 val pp_int : int printer
 val pp_float : float printer
@@ -43,11 +47,12 @@ val pp_bool : bool printer
 val pp_string : string printer
 val pp_list : 'a printer -> 'a list printer
 
+
+
 type test_result = (unit, unit printer) result
 val check : bool -> test_result
 val check_eq : ?pp:('a printer) -> ?cmp:('a -> 'a -> int) -> ?eq:('a -> 'a -> bool) ->
                'a -> 'a -> test_result
-
 
 val add_test :
   ?name:string -> ('f, test_result) gens -> 'f -> unit
