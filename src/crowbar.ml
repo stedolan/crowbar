@@ -308,7 +308,8 @@ let run_test ~mode ~quiet (Test (name, gens, f)) =
     if clear then print_newline ();
     flush stdout in
   let ppf = Format.std_formatter in
-  if not quiet then show_status_line ~clear:false "....";
+  if not quiet && Unix.isatty Unix.stdout then
+    show_status_line ~clear:false "....";
   let status = match mode with
   | `Once state ->
      run_once gens f state
