@@ -1,4 +1,9 @@
-test
 *.cm*
 *.o
 output
+calendar
+xmldiff
+pprint
+map
+fpath
+alltests

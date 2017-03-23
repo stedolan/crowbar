@@ -1,8 +1,9 @@
-TESTS = calendar xmldiff pprint map
+TESTS = calendar xmldiff pprint map fpath
 PKG_calendar = calendar
 PKG_pprint = pprint,str
 PKG_xmldiff = xmldiff
 PKG_map =
+PKG_fpath = fpath
 
 .PHONY: all clean
 all: $(TESTS) alltests
@@ -19,3 +20,10 @@ alltests: $(TESTS:%=test_%.ml)
 	  -linkpkg \
 	  $^ -o $@
 
+.gitignore: Makefile
+	{ \
+	   echo '*.cm*'; \
+	   echo '*.o'; \
+	   echo output; \
+	   for i in $(TESTS) alltests; do echo $$i; done \
+	} > $@
