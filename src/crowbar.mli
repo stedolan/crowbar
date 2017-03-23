@@ -9,6 +9,7 @@ type 'a gen =
   | Option : 'a gen -> 'a option gen
   | List : 'a gen -> 'a list gen
   | List1 : 'a gen -> 'a list gen
+  | Join : 'a gen gen -> 'a gen
   | Primitive of (state -> 'a)
   | Print of 'a printer * 'a gen
 

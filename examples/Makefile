@@ -1,9 +1,10 @@
-TESTS = calendar xmldiff pprint map fpath
+TESTS = calendar xmldiff pprint map fpath join
 PKG_calendar = calendar
 PKG_pprint = pprint,str
 PKG_xmldiff = xmldiff
 PKG_map =
 PKG_fpath = fpath
+PKG_join =
 
 .PHONY: all clean
 all: $(TESTS) alltests

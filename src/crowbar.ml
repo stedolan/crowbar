@@ -1,8 +1,3 @@
-(* FIXME: add join/bind?
-Command-line interface:
-  quickcheck or fuzz
-Nice output
- *)
 type src = Random of Random.State.t | Chan of in_channel
 type state = 
   {
@@ -22,6 +17,7 @@ type 'a gen =
   | Option : 'a gen -> 'a option gen
   | List : 'a gen -> 'a list gen
   | List1 : 'a gen -> 'a list gen
+  | Join : 'a gen gen -> 'a gen
   | Primitive of (state -> 'a)
   | Print of 'a printer * 'a gen
 and ('k, 'res) gens =
@@ -168,6 +164,10 @@ let rec generate : type a . int -> state -> a gen -> a * unit printer =
      let elems = generate_list1 size input gen in
      List.map fst elems,
        fun ppf () -> pp_list (fun ppf (v, pv) -> pv ppf ()) ppf elems
+  | Join gengen ->
+     let gen, pgen = generate size input gengen in
+     let v, pv = generate size input gen in
+     v, fun ppf () -> pp ppf "@[<hv 1>[%a; %a]@]" pgen () pv ()
   | Primitive gen ->
      gen input, fun ppf () -> pp ppf "?"
   | Print (ppv, gen) ->
