@@ -78,13 +78,16 @@ let bool = Primitive read_bool
                    
 let int8 = Map ([uint8], fun n -> n - 128)
 
-let int32 = Primitive (fun src ->
+let read_int32 src =
   let off = getbytes src 4 in
-  EndianBytes.LittleEndian.get_int32 src.buf off)
+  EndianBytes.LittleEndian.get_int32 src.buf off
 
-let int64 = Primitive (fun src ->
+let read_int64 src =
   let off = getbytes src 8 in
-  EndianBytes.LittleEndian.get_int64 src.buf off)
+  EndianBytes.LittleEndian.get_int64 src.buf off
+
+let int32 = Primitive read_int32
+let int64 = Primitive read_int64
 
 let int =
   if Sys.word_size <= 32 then
@@ -102,10 +105,16 @@ let bytes = Primitive (fun src ->
   let off2 = getbytes src n in
   Bytes.sub_string src.buf off2 n)
 
-let range n =
-  assert (0 <= n && n < 256);   (* FIXME *)
-  Map ([uint8], fun k -> k mod n)
+let choose n state =
+  assert (n > 0);
+  if (n < 100) then
+    read_byte state mod n
+  else if (n < 0x1000000) then
+    Int32.(to_int (abs (rem (read_int32 state) (of_int n))))
+  else
+    Int64.(to_int (abs (rem (read_int64 state) (of_int n))))
 
+let range n = Primitive (choose n)
 
 let pp = Format.fprintf
 let pp_int ppf n = pp ppf "%d" n
@@ -117,10 +126,6 @@ let pp_list pv ppf l =
      (Format.pp_print_list ~pp_sep:(fun ppf () -> pp ppf ";@ ") pv) l
 
 exception GenFailed of exn * Printexc.raw_backtrace * unit printer
-
-let choose state n =
-  assert (n < 100);             (* FIXME *)
-  read_byte state mod n
 
 let rec generate : type a . int -> state -> a gen -> a * unit printer =
   fun size input gen -> match gen with
@@ -136,7 +141,7 @@ let rec generate : type a . int -> state -> a gen -> a * unit printer =
          | small -> small
        else
          xs in
-     let n = choose input (List.length gens) in
+     let n = choose (List.length gens) input in
      let v, pv = generate size input (List.nth gens n) in
      v, fun ppf () -> pp ppf "%d: %a" n pv ()
   | Map (gens, f) ->
@@ -362,7 +367,7 @@ let run_all_tests tests =
          let chan = open_in file in
          let state = { chan = Chan chan; buf = Bytes.make 256 '0';
                        offset = 0; len = 0 } in
-         let test = List.nth tests (choose state (List.length tests)) in
+         let test = List.nth tests (choose (List.length tests) state) in
          let status = run_test ~mode:(`Once state) ~quiet:false test in
          close_in chan;
          match classify_status status with
