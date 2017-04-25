@@ -36,6 +36,7 @@ val range : int -> int gen
 
 val guard : bool -> unit
 val bad_test : unit -> 'a
+val nonetheless : 'a option -> 'a
 
 
 (* helper functions for printing *)
