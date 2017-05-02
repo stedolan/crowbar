@@ -31,6 +31,9 @@ let guard = function
   | true -> ()
   | false -> raise (BadTest "guard failed")
 let bad_test () = raise (BadTest "bad test")
+let nonetheless = function
+  | None -> bad_test ()
+  | Some a -> a
 
 let get_data chan buf off len =
   match chan with
