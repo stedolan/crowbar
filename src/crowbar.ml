@@ -1,5 +1,5 @@
 type src = Random of Random.State.t | Chan of in_channel
-type state = 
+type state =
   {
     chan : src;
     buf : Bytes.t;
@@ -25,6 +25,17 @@ and ('k, 'res) gens =
   | (::) : 'a gen * ('k, 'res) gens -> ('a -> 'k, 'res) gens
 
 type nonrec +'a list = 'a list = [] | (::) of 'a * 'a list
+
+let pp = Format.fprintf
+let pp_int ppf n = pp ppf "%d" n
+let pp_int32 ppf n = pp ppf "%s" (Int32.to_string n)
+let pp_int64 ppf n = pp ppf "%s" (Int64.to_string n)
+let pp_float ppf f = pp ppf "%f" f
+let pp_bool ppf b = pp ppf "%b" b
+let pp_string ppf s = pp ppf "\"%s\"" (String.escaped s)
+let pp_list pv ppf l =
+  pp ppf "@[<hv 1>[%a]@]"
+     (Format.pp_print_list ~pp_sep:(fun ppf () -> pp ppf ";@ ") pv) l
 
 exception BadTest of string
 let guard = function
@@ -76,10 +87,9 @@ let read_bool src =
   let n = read_byte src in
   n land 1 = 1
 
-let uint8 = Primitive read_byte
-let bool = Primitive read_bool
-                   
-let int8 = Map ([uint8], fun n -> n - 128)
+let uint8 = Print(pp_int, Primitive read_byte)
+let bool = Print(pp_bool, Primitive read_bool)
+
 
 let read_int32 src =
   let off = getbytes src 4 in
@@ -89,24 +99,27 @@ let read_int64 src =
   let off = getbytes src 8 in
   EndianBytes.LittleEndian.get_int64 src.buf off
 
-let int32 = Primitive read_int32
-let int64 = Primitive read_int64
+let int8 = Print(pp_int, Map ([uint8], fun n -> n - 128))
+let int32 = Print (pp_int32, Primitive read_int32)
+let int64 = Print (pp_int64, Primitive read_int64)
 
 let int =
-  if Sys.word_size <= 32 then
-    Map([int32], Int32.to_int)
-  else
-    Map([int64], Int64.to_int)
+  Print (pp_int,
+    if Sys.word_size <= 32 then
+      Map([int32], Int32.to_int)
+    else
+      Map([int64], Int64.to_int))
 
-let float = Primitive (fun src ->
+let float = Print (pp_float, Primitive (fun src ->
   let off = getbytes src 8 in
-  EndianBytes.LittleEndian.get_double src.buf off)
+  EndianBytes.LittleEndian.get_double src.buf off))
 
-let bytes = Primitive (fun src ->
+(* maybe print as a hexdump? *)
+let bytes = Print (pp_string, Primitive (fun src ->
   let off1 = getbytes src 1 in
   let n = Char.code src.buf.[off1] mod 64 in
   let off2 = getbytes src n in
-  Bytes.sub_string src.buf off2 n)
+  Bytes.sub_string src.buf off2 n))
 
 let choose n state =
   assert (n > 0);
@@ -117,22 +130,13 @@ let choose n state =
   else
     Int64.(to_int (abs (rem (read_int64 state) (of_int n))))
 
-let range n = Primitive (choose n)
-
-let pp = Format.fprintf
-let pp_int ppf n = pp ppf "%d" n
-let pp_float ppf f = pp ppf "%f" f
-let pp_bool ppf b = pp ppf "%b" b
-let pp_string ppf s = pp ppf "\"%s\"" (String.escaped s)
-let pp_list pv ppf l =
-  pp ppf "@[<hv 1>[%a]@]"
-     (Format.pp_print_list ~pp_sep:(fun ppf () -> pp ppf ";@ ") pv) l
+let range n = Print (pp_int, Primitive (choose n))
 
 exception GenFailed of exn * Printexc.raw_backtrace * unit printer
 
 let rec generate : type a . int -> state -> a gen -> a * unit printer =
   fun size input gen -> match gen with
-  | Const k -> 
+  | Const k ->
      k, fun ppf () -> pp ppf "?"
   | Choose xs ->
      (* FIXME: better distribution? *)
@@ -146,7 +150,7 @@ let rec generate : type a . int -> state -> a gen -> a * unit printer =
          xs in
      let n = choose (List.length gens) input in
      let v, pv = generate size input (List.nth gens n) in
-     v, fun ppf () -> pp ppf "%d: %a" n pv ()
+     v, fun ppf () -> pp ppf "#%d %a" n pv ()
   | Map (gens, f) ->
      let rec len : type k res . int -> (k, res) gens -> int =
        fun acc xs -> match xs with
@@ -195,17 +199,17 @@ and generate_list1 : type a . int -> state -> a gen -> (a * unit printer) list =
   ans :: generate_list size input gen
 
 and gen_apply :
-    type k res . int -> state -> 
-       (k, res) gens -> k -> 
+    type k res . int -> state ->
+       (k, res) gens -> k ->
        (res, exn * Printexc.raw_backtrace) result * unit printer =
   fun size state gens f ->
   let rec go :
-    type k res . int -> state -> 
-       (k, res) gens -> k -> 
+    type k res . int -> state ->
+       (k, res) gens -> k ->
        (res, exn * Printexc.raw_backtrace) result * unit printer list =
       fun size input gens -> match gens with
       | [] -> fun x -> Ok x, []
-      | g :: gs -> fun f -> 
+      | g :: gs -> fun f ->
         let v, pv = generate size input g in
         let res, pvs =
           match f v with
@@ -216,7 +220,11 @@ and gen_apply :
         res, pv :: pvs in
   let v, pvs = go size state gens f in
   let pvs = fun ppf () ->
-    pp_list (fun ppf pv -> pv ppf ()) ppf pvs in
+    match pvs with
+    | [pv] ->
+       pv ppf ()
+    | pvs ->
+       pp_list (fun ppf pv -> pv ppf ()) ppf pvs in
   v, pvs
 
 type test_result = (unit, unit printer) result
@@ -244,7 +252,7 @@ let () = Printexc.record_backtrace true
 type test = Test : string * ('f, test_result) gens * 'f -> test
 
 type test_status =
-  | TestPass
+  | TestPass of unit printer
   | BadInput of string
   | GenFail of exn * Printexc.raw_backtrace * unit printer
   | TestExn of exn * Printexc.raw_backtrace * unit printer
@@ -252,19 +260,19 @@ type test_status =
 
 let run_once (gens : (_, test_result) gens) f state =
   match gen_apply 100 state gens f with
-  | Ok (Ok v), _ -> TestPass
+  | Ok (Ok v), pvs -> TestPass pvs
   | Ok (Error p), pvs -> TestFail (p, pvs)
   | Error (e, bt), pvs -> TestExn (e, bt, pvs)
   | exception (BadTest s) -> BadInput s
   | exception (GenFailed (e, bt, pvs)) -> GenFail (e, bt, pvs)
 
 let classify_status = function
-  | TestPass -> `Pass
+  | TestPass _ -> `Pass
   | BadInput _ -> `Bad
   | GenFail _ -> `Fail (* slightly dubious... *)
   | TestExn _ | TestFail _ -> `Fail
 
-let print_status ppf status = 
+let print_status ppf status =
   let print_ex ppf (e, bt) =
     pp ppf "%s" (Printexc.to_string e);
     bt
@@ -272,8 +280,9 @@ let print_status ppf status =
     |> Str.split (Str.regexp "\n")
     |> List.iter (pp ppf "@,%s") in
   match status with
-  | TestPass ->
-     pp ppf "The test passed."
+  | TestPass pvs ->
+     pp ppf "When given the input:@.@[<v 4>@,%a@,@]@.the test passed."
+        pvs ()
   | BadInput s ->
      pp ppf "The testcase was invalid:@.%s" s
   | GenFail (e, bt, pvs) ->
@@ -297,7 +306,7 @@ type mode =
   (* run tests a few times with random seeds and log failures *)
   | Quick of int
 
-let src_of_seed seed = 
+let src_of_seed seed =
   (* try to make this independent of word size *)
   let seed = Int64.( [|
        to_int (logand (of_int 0xffff) seed);
@@ -306,7 +315,7 @@ let src_of_seed seed =
        to_int (logand (of_int 0xffff) (shift_right seed 48)) |]) in
   Random (Random.State.make seed)
 
-let run_test ~mode ~quiet (Test (name, gens, f)) =
+let run_test ~mode ~silent ?(verbose=false) (Test (name, gens, f)) =
   let show_status_line ?(clear=false) ?(c=Notty.A.empty) stat =
     let open Notty in
     Notty_unix.output_image_size ~clear (fun (w, _) ->
@@ -316,16 +325,16 @@ let run_test ~mode ~quiet (Test (name, gens, f)) =
     if clear then print_newline ();
     flush stdout in
   let ppf = Format.std_formatter in
-  if not quiet && Unix.isatty Unix.stdout then
+  if not silent && Unix.isatty Unix.stdout then
     show_status_line ~clear:false "....";
   let status = match mode with
   | `Once state ->
      run_once gens f state
   | `Repeat iters ->
-     let worst_status = ref TestPass in
+     let worst_status = ref (TestPass (fun ppf () -> ())) in
      let npass = ref 0 in
      let nbad = ref 0 in
-     while !npass < iters && !worst_status = TestPass do
+     while !npass < iters && classify_status !worst_status = `Pass do
        let seed = Random.int64 Int64.max_int in
        let state = { chan = src_of_seed seed;
                      buf = Bytes.make 256 '0';
@@ -335,17 +344,18 @@ let run_test ~mode ~quiet (Test (name, gens, f)) =
        | `Pass -> incr npass
        | `Bad -> incr nbad
        | `Fail ->
-          (* if not quiet then pp ppf "failed with seed %016LX" seed; *)
+          (* if not silent then pp ppf "failed with seed %016LX" seed; *)
           worst_status := status
        end;
      done;
      let status = !worst_status in
      status in
-  if not quiet then begin
+  if not silent then begin
       match classify_status status with
       | `Pass ->
-         show_status_line 
-           ~clear:true ~c:Notty.A.(fg green) "PASS"
+         show_status_line
+           ~clear:true ~c:Notty.A.(fg green) "PASS";
+         if verbose then pp ppf "%a@." print_status status
       | `Fail ->
          show_status_line
            ~clear:true ~c:Notty.A.(fg lightred ++ st bold) "FAIL";
@@ -363,19 +373,24 @@ let run_all_tests tests =
   | [| _ |] ->
      (* Quickcheck mode *)
      tests |> List.iter (fun t ->
-       ignore (run_test ~mode:(`Repeat 5000) ~quiet:false t))
-  | [| _; file |] ->
+       ignore (run_test ~mode:(`Repeat 5000) ~silent:false t))
+  | [| _; file |]
+  | [| _; "-v"; file |] ->
      (* AFL mode *)
+     let verbose = (Array.length Sys.argv = 3) in
      AflPersistent.run (fun () ->
          let chan = open_in file in
          let state = { chan = Chan chan; buf = Bytes.make 256 '0';
                        offset = 0; len = 0 } in
          let test = List.nth tests (choose (List.length tests) state) in
-         let status = run_test ~mode:(`Once state) ~quiet:false test in
+         let status = run_test ~mode:(`Once state)
+                               ~silent:false
+                               ~verbose
+                               test in
          close_in chan;
          match classify_status status with
          | `Pass | `Bad -> ()
-         | `Fail -> 
+         | `Fail ->
             Printexc.record_backtrace false;
             raise TestFailure)
   | _ -> failwith "command line parsing is not my strong point"
@@ -388,7 +403,7 @@ let generate_name () =
 let registered_tests = ref []
 
 let add_test ?name gens f =
-  let name = match name with 
+  let name = match name with
     | None -> generate_name ()
     | Some name -> name in
   registered_tests := Test (name, gens, f) :: !registered_tests
@@ -416,7 +431,7 @@ let rec run_test t =
       | exception (BadTest b) ->
          pp Format.std_formatter "bad test: %s\n" b
       | Error perr, pv ->
-         pp Format.std_formatter 
+         pp Format.std_formatter
             "Testcase: {%a}\nFailure: {%a}\n"
             pv () perr ()
       end;
@@ -433,7 +448,7 @@ let rec run_test t =
       | exception (BadTest b) ->
          pp Format.std_formatter "bad test: %s\n" b
       | Error perr, pv ->
-         pp Format.std_formatter 
+         pp Format.std_formatter
             "Testcase: %a\nFailure: %a\n"
             pv () perr ()
       end;

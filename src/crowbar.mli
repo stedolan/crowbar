@@ -44,6 +44,8 @@ val nonetheless : 'a option -> 'a
 (* Format.fprintf, renamed *)
 val pp : Format.formatter -> ('a, Format.formatter, unit) format -> 'a
 val pp_int : int printer
+val pp_int32 : Int32.t printer
+val pp_int64 : Int64.t printer
 val pp_float : float printer
 val pp_bool : bool printer
 val pp_string : string printer
