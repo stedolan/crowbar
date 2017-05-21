@@ -78,10 +78,12 @@ let rec getbytes src n =
   else
     (refill src; getbytes src n)
 
+let read_char src =
+  let off = getbytes src 1 in
+  Bytes.get src.buf off
 
 let read_byte src =
-  let off = getbytes src 1 in
-  Char.code (Bytes.get src.buf off)
+  Char.code (read_char src)
 
 let read_bool src =
   let n = read_byte src in
@@ -116,10 +118,20 @@ let float = Print (pp_float, Primitive (fun src ->
 
 (* maybe print as a hexdump? *)
 let bytes = Print (pp_string, Primitive (fun src ->
-  let off1 = getbytes src 1 in
-  let n = Char.code src.buf.[off1] mod 64 in
-  let off2 = getbytes src n in
-  Bytes.sub_string src.buf off2 n))
+  (* null-terminated, with '\001' as an escape code *)
+  let buf = Bytes.make 64 '\255' in
+  let rec read_bytes p =
+    if p >= Bytes.length buf then p else
+    match read_char src with
+    | '\000' -> p
+    | '\001' ->
+       Bytes.set buf p (read_char src);
+       read_bytes (p + 1)
+    | c ->
+       Bytes.set buf p c;
+       read_bytes (p + 1) in
+  let count = read_bytes 0 in
+  Bytes.sub_string buf 0 count))
 
 let choose n state =
   assert (n > 0);
