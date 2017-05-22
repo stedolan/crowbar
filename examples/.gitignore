@@ -7,4 +7,10 @@ pprint
 map
 fpath
 join
+opamver
+yojson
+cbor
+bson
+uunf
+bigint
 alltests
