@@ -163,6 +163,8 @@ let rec generate : type a . int -> state -> a gen -> a * unit printer =
      let n = choose (List.length gens) input in
      let v, pv = generate size input (List.nth gens n) in
      v, fun ppf () -> pp ppf "#%d %a" n pv ()
+  | Map ([], k) ->
+     k, fun ppf () -> pp ppf "?"
   | Map (gens, f) ->
      let rec len : type k res . int -> (k, res) gens -> int =
        fun acc xs -> match xs with
