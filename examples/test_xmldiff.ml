@@ -1,18 +1,34 @@
+module Op = struct
+type ('k, 'res) gens = ('k, 'res) Crowbar.gens =
+  | [] : ('res, 'res) gens
+  | (::) : 'a Crowbar.gen * ('k, 'res) gens -> ('a -> 'k, 'res) gens
+
+(* re-export stdlib's list
+   We only want to override [] syntax in the argument to Map *)
+type nonrec +'a list = 'a list = [] | (::) of 'a * 'a list
+
+end
+
+module C = Crowbar
+open Op
+let ident = C.choose [C.const "a"; C.const "b"; C.const "c"]
+let elem_name = C.map [ident] (fun s -> ("", s))
+
+
 open Crowbar
 
-let ident = Choose [Const "a"; Const "b"; Const "c"]
-let elem_name = Map ([ident], fun s -> ("", s))
+
 let attrs =
-  Choose [
-    Const Xmldiff.Nmap.empty;
-    Map ([elem_name; ident], Xmldiff.Nmap.singleton)
+  choose [
+    const Xmldiff.Nmap.empty;
+    map [elem_name; ident] Xmldiff.Nmap.singleton
   ]
 
-let rec xml =
-  Choose [
-    Const (`D "a");
-    Map ([ident], fun s -> `D s);
-    Map ([elem_name; attrs; List xml], fun s attrs elems ->
+let rec xml = lazy (
+  choose [
+    const (`D "a");
+    map [ident] (fun s -> `D s);
+    map [elem_name; attrs; list (unlazy xml)] (fun s attrs elems ->
       let rec normalise = function
         | ([] | [_]) as x -> x
         | `E _ as el :: xs ->
@@ -23,13 +39,15 @@ let rec xml =
               `D (s ^ s') :: xs'
            | xs' -> `D s :: xs' in
       `E (s, attrs, normalise elems))
-  ]
+  ])
 
-let xml = Map ([xml], fun d -> `E (("", "a"), Xmldiff.Nmap.empty, [d]))
+let lazy xml = xml
+
+let xml = map [xml] (fun d -> `E (("", "a"), Xmldiff.Nmap.empty, [d]))
 
 let pp_xml ppf xml =
   pp ppf "%s" (Xmldiff.string_of_xml xml)
-let xml = Print (pp_xml, xml)
+let xml = with_printer pp_xml xml
 
 
 let () =

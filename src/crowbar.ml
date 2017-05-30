@@ -26,6 +26,21 @@ and ('k, 'res) gens =
 
 type nonrec +'a list = 'a list = [] | (::) of 'a * 'a list
 
+let unlazy f =
+  Join (Primitive (fun _ -> Lazy.force f))
+let map gens f = Map (gens, f)
+
+let const x = map [] x
+let choose gens = Choose gens
+let option gen = Option gen
+let list gen = List gen
+let list1 gen = List1 gen
+let join ggen = Join ggen
+let with_printer pp gen = Print (pp, gen)
+
+let bind x f = join (map [x] f)
+
+
 let pp = Format.fprintf
 let pp_int ppf n = pp ppf "%d" n
 let pp_int32 ppf n = pp ppf "%s" (Int32.to_string n)
@@ -133,7 +148,7 @@ let bytes = Print (pp_string, Primitive (fun src ->
   let count = read_bytes 0 in
   Bytes.sub_string buf 0 count))
 
-let choose n state =
+let choose_int n state =
   assert (n > 0);
   if (n < 100) then
     read_byte state mod n
@@ -142,7 +157,7 @@ let choose n state =
   else
     Int64.(to_int (abs (rem (read_int64 state) (of_int n))))
 
-let range n = Print (pp_int, Primitive (choose n))
+let range n = Print (pp_int, Primitive (choose_int n))
 
 exception GenFailed of exn * Printexc.raw_backtrace * unit printer
 
@@ -160,7 +175,7 @@ let rec generate : type a . int -> state -> a gen -> a * unit printer =
          | small -> small
        else
          xs in
-     let n = choose (List.length gens) input in
+     let n = choose_int (List.length gens) input in
      let v, pv = generate size input (List.nth gens n) in
      v, fun ppf () -> pp ppf "#%d %a" n pv ()
   | Map ([], k) ->
@@ -396,7 +411,7 @@ let run_all_tests tests =
          let chan = open_in file in
          let state = { chan = Chan chan; buf = Bytes.make 256 '0';
                        offset = 0; len = 0 } in
-         let test = List.nth tests (choose (List.length tests) state) in
+         let test = List.nth tests (choose_int (List.length tests) state) in
          let status = run_test ~mode:(`Once state)
                                ~silent:false
                                ~verbose
