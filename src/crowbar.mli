@@ -2,25 +2,31 @@ type state
 
 type 'a printer = Format.formatter -> 'a -> unit
 
-type 'a gen =
-  | Const of 'a
-  | Choose of 'a gen list
-  | Map : ('f, 'a) gens * 'f -> 'a gen
-  | Option : 'a gen -> 'a option gen
-  | List : 'a gen -> 'a list gen
-  | List1 : 'a gen -> 'a list gen
-  | Join : 'a gen gen -> 'a gen
-  | Primitive of (state -> 'a)
-  | Print of 'a printer * 'a gen
+type 'a gen
 
-and ('k, 'res) gens =
+type ('k, 'res) gens =
   | [] : ('res, 'res) gens
   | (::) : 'a gen * ('k, 'res) gens -> ('a -> 'k, 'res) gens
-
 (* re-export stdlib's list
    We only want to override [] syntax in the argument to Map *)
 type nonrec +'a list = 'a list = [] | (::) of 'a * 'a list
 
+val map : ('f, 'a) gens -> 'f -> 'a gen
+
+val join : 'a gen gen -> 'a gen
+
+val bind : 'a gen -> ('a -> 'b gen) -> 'b gen
+
+val unlazy : 'a gen Lazy.t -> 'a gen
+
+val const : 'a -> 'a gen
+val choose : 'a gen list -> 'a gen
+
+val option : 'a gen -> 'a option gen
+val list : 'a gen -> 'a list gen
+val list1 : 'a gen -> 'a list gen
+
+val with_printer : 'a printer -> 'a gen -> 'a gen
 
 (* some builtin generators for primitive types *)
 
