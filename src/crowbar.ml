@@ -388,6 +388,20 @@ let run_all_tests tests =
      (* Quickcheck mode *)
      tests |> List.iter (fun t ->
        ignore (run_test ~mode:(`Repeat 5000) ~silent:false t))
+  | [| _; "-i" |] ->
+     (* Infinite quickcheck mode *)
+     Random.self_init ();
+     let rec go ntests alltests tests = match tests with
+       | [] ->
+          go ntests alltests alltests
+       | t :: rest ->
+          if ntests mod 10000 = 0 then Printf.eprintf "%d\n%!" ntests;
+          match classify_status (run_test ~mode:(`Once { chan = src_of_seed (Random.int64 (Int64.max_int));
+                     buf = Bytes.make 256 '0';
+                     offset = 0; len = 0 })  ~silent:true t) with
+          | `Fail -> Printf.printf "%d\n" ntests
+          | _ -> go (ntests + 1) alltests rest in
+     go 0 tests tests
   | [| _; file |]
   | [| _; "-v"; file |] ->
      (* AFL mode *)
