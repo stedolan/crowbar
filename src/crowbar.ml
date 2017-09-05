@@ -344,14 +344,22 @@ let src_of_seed seed =
        to_int (logand (of_int 0xffff) (shift_right seed 48)) |]) in
   Random (Random.State.make seed)
 
+let colorcode = function
+  | `Default -> ""
+  | `Green -> "\027[32m"
+  | `Red -> "\027[31;1m"
+  | `Yellow -> "\027[33m"
+
 let run_test ~mode ~silent ?(verbose=false) (Test (name, gens, f)) =
-  let show_status_line ?(clear=false) ?(c=Notty.A.empty) stat =
-    let open Notty in
-    Notty_unix.output_image_size ~clear (fun (w, _) ->
-      let i1 = I.string c name in
-      let i2 = I.strf ~attr:c "[%04s]" stat in
-      I.(i1 <|> void (min w 80 - width i1 - width i2) 1 <|> i2));
-    if clear then print_newline ();
+  let show_status_line ?(clear=false) ?(c=`Default) stat =
+    Printf.printf "%s%s%-*s[%04s]%s%s"
+      (if clear then "\r" else "")
+      (colorcode c)
+      (80 - 6)
+      name
+      stat
+      (match c with `Default -> "" | _ -> "\027[0m")
+      (if clear then "\n" else "");
     flush stdout in
   let ppf = Format.std_formatter in
   if not silent && Unix.isatty Unix.stdout then
@@ -383,15 +391,15 @@ let run_test ~mode ~silent ?(verbose=false) (Test (name, gens, f)) =
       match classify_status status with
       | `Pass ->
          show_status_line
-           ~clear:true ~c:Notty.A.(fg green) "PASS";
+           ~clear:true ~c:`Green "PASS";
          if verbose then pp ppf "%a@." print_status status
       | `Fail ->
          show_status_line
-           ~clear:true ~c:Notty.A.(fg lightred ++ st bold) "FAIL";
+           ~clear:true ~c:`Red "FAIL";
          pp ppf "%a@." print_status status;
       | `Bad ->
          show_status_line
-           ~clear:true ~c:Notty.A.(fg yellow) "BAD";
+           ~clear:true ~c:`Yellow "BAD";
          pp ppf "%a@." print_status status;
     end;
   status
