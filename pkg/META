@@ -1,7 +1,0 @@
-description = ""
-version = "0.1"
-requires = "ocplib-endian afl-persistent str"
-archive(native) = "crowbar.cmxa"
-archive(byte) = "crowbar.cma"
-plugin(native) = "crowbar.cmxs"
-plugin(byte) = "crowbar.cma"

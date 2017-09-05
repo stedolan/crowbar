@@ -1,14 +1,12 @@
 open Crowbar
-let uchar =
-  Map ([int32], fun n ->
-    let n = Int32.to_int n land 0x1FFFFF in
-    (try
-      ignore (Uchar.of_int n)
-    with
-      Invalid_argument _ -> bad_test ());
-    n)
 
-let unicode = List uchar
+let uchar =
+  map [int32] (fun n ->
+    let n = Int32.to_int n land 0x1FFFFF in
+    try Uchar.of_int n
+    with Invalid_argument _ -> bad_test ())
+
+let unicode = list uchar
 
 let norm form str =
   let n = Uunf.create form in
@@ -28,11 +26,11 @@ let unicode_to_string s =
 let pp_unicode ppf s =
   Format.fprintf ppf "@[<hov 1>[";
   s |> List.iter (fun u ->
-           Format.fprintf ppf "U+%x@ " u
+           Format.fprintf ppf "U+%x@ " (Uchar.to_int u)
            );
   Format.fprintf ppf "\"%s\"" (unicode_to_string s);
   Format.fprintf ppf "]@]"
-let unicode = Print(pp_unicode, unicode)
+let unicode = with_printer pp_unicode unicode
 
 let () =
   add_test ~name:"uunf" [unicode] @@ fun s ->

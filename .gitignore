@@ -2,3 +2,4 @@ _build
 crowbar.install
 *.byte
 *.native
+.merlin
