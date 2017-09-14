@@ -53,6 +53,7 @@ let pp_list pv ppf l =
      (Format.pp_print_list ~pp_sep:(fun ppf () -> pp ppf ";@ ") pv) l
 
 exception BadTest of string
+exception FailedTest of unit printer
 let guard = function
   | true -> ()
   | false -> raise (BadTest "guard failed")
@@ -256,11 +257,12 @@ and gen_apply :
        pp_list (fun ppf pv -> pv ppf ()) ppf pvs in
   v, pvs
 
-type test_result = (unit, unit printer) result
+
+let fail s = raise (FailedTest (fun ppf () -> pp_string ppf s))
 
 let check = function
-  | true -> Ok ()
-  | false -> Error (fun ppf () -> pp ppf "check false")
+  | true -> ()
+  | false -> raise (FailedTest (fun ppf () -> pp ppf "check false"))
 
 let check_eq ?pp:pv ?cmp ?eq a b =
   let pass = match eq, cmp with
@@ -269,16 +271,16 @@ let check_eq ?pp:pv ?cmp ?eq a b =
     | None, None ->
        Pervasives.compare a b = 0 in
   if pass then
-    Ok ()
+    ()
   else
-    Error (fun ppf () ->
+    raise (FailedTest (fun ppf () ->
       match pv with
       | None -> pp ppf "different"
-      | Some pv -> pp ppf "@[<hv>%a@ !=@ %a@]" pv a pv b)
+      | Some pv -> pp ppf "@[<hv>%a@ !=@ %a@]" pv a pv b))
 
 let () = Printexc.record_backtrace true
 
-type test = Test : string * ('f, test_result) gens * 'f -> test
+type test = Test : string * ('f, unit) gens * 'f -> test
 
 type test_status =
   | TestPass of unit printer
@@ -287,10 +289,10 @@ type test_status =
   | TestExn of exn * Printexc.raw_backtrace * unit printer
   | TestFail of unit printer * unit printer
 
-let run_once (gens : (_, test_result) gens) f state =
+let run_once (gens : (_, unit) gens) f state =
   match gen_apply 100 state gens f with
-  | Ok (Ok v), pvs -> TestPass pvs
-  | Ok (Error p), pvs -> TestFail (p, pvs)
+  | Ok (), pvs -> TestPass pvs
+  | Error (FailedTest p, bt), pvs -> TestFail (p, pvs)
   | Error (e, bt), pvs -> TestExn (e, bt, pvs)
   | exception (BadTest s) -> BadInput s
   | exception (GenFailed (e, bt, pvs)) -> GenFail (e, bt, pvs)
@@ -375,6 +377,11 @@ let run_test ~mode ~silent ?(verbose=false) (Test (name, gens, f)) =
      done;
      let status = !worst_status in
      status in
+  if silent && verbose && classify_status status = `Fail then begin
+         show_status_line
+           ~clear:true "FAIL";
+         pp ppf "%a@." print_status status;
+  end;
   if not silent then begin
       match classify_status status with
       | `Pass ->
@@ -406,10 +413,10 @@ let run_all_tests tests =
        | [] ->
           go ntests alltests alltests
        | t :: rest ->
-          if ntests mod 10000 = 0 then Printf.eprintf "%d\n%!" ntests;
+          if ntests mod 10000 = 0 then Printf.eprintf "\r%d%!" ntests;
           match classify_status (run_test ~mode:(`Once { chan = src_of_seed (Random.int64 (Int64.max_int));
                      buf = Bytes.make 256 '0';
-                     offset = 0; len = 0 })  ~silent:true t) with
+                     offset = 0; len = 0 })  ~silent:true ~verbose:true t) with
           | `Fail -> Printf.printf "%d\n" ntests
           | _ -> go (ntests + 1) alltests rest in
      go 0 tests tests

@@ -1,22 +1,8 @@
-module Op = struct
-type ('k, 'res) gens = ('k, 'res) Crowbar.gens =
-  | [] : ('res, 'res) gens
-  | (::) : 'a Crowbar.gen * ('k, 'res) gens -> ('a -> 'k, 'res) gens
-
-(* re-export stdlib's list
-   We only want to override [] syntax in the argument to Map *)
-type nonrec +'a list = 'a list = [] | (::) of 'a * 'a list
-
-end
-
-module C = Crowbar
-open Op
-let ident = C.choose [C.const "a"; C.const "b"; C.const "c"]
-let elem_name = C.map [ident] (fun s -> ("", s))
-
-
 open Crowbar
 
+let ident = choose [const "a"; const "b"; const "c"]
+
+let elem_name = map [ident] (fun s -> ("", s))
 
 let attrs =
   choose [
