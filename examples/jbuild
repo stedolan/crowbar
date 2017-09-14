@@ -1,4 +1,10 @@
 (jbuild_version 1)
 
 (executable
- ((name test_uunf) (libraries (uunf uutf crowbar))))
+ ((name test_uunf) (libraries (uunf uutf uucp crowbar)) (modules test_uunf)))
+
+(executable
+ ((name test_xmldiff) (libraries (xmldiff crowbar)) (modules test_xmldiff)))
+
+(executable
+ ((name uunf_bug) (libraries (uunf uutf uucp)) (modules uunf_bug)))

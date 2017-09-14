@@ -59,10 +59,10 @@ val pp_list : 'a printer -> 'a list printer
 
 
 
-type test_result = (unit, unit printer) result
-val check : bool -> test_result
+val fail : string -> 'a
+val check : bool -> unit
 val check_eq : ?pp:('a printer) -> ?cmp:('a -> 'a -> int) -> ?eq:('a -> 'a -> bool) ->
-               'a -> 'a -> test_result
+               'a -> 'a -> unit
 
 val add_test :
-  ?name:string -> ('f, test_result) gens -> 'f -> unit
+  ?name:string -> ('f, unit) gens -> 'f -> unit
