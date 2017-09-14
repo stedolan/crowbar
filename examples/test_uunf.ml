@@ -2,11 +2,11 @@ open Crowbar
 
 let uchar =
   map [int32] (fun n ->
-    let n = Int32.to_int n land 0x1FFFFF in
+    let n = (Int32.to_int n land 0xFFFFFFF) mod 0x10FFFF in
     try Uchar.of_int n
     with Invalid_argument _ -> bad_test ())
 
-let unicode = list uchar
+let unicode = list1 uchar
 
 let norm form str =
   let n = Uunf.create form in
@@ -23,13 +23,15 @@ let unicode_to_string s =
   List.iter (Uutf.Buffer.add_utf_8 b) s;
   Buffer.contents b
 
+
 let pp_unicode ppf s =
-  Format.fprintf ppf "@[<hov 1>[";
+  Format.fprintf ppf "@[<v 2>";
+  Format.fprintf ppf "@[\"%s\"@]@ " (unicode_to_string s);
   s |> List.iter (fun u ->
-           Format.fprintf ppf "U+%x@ " (Uchar.to_int u)
-           );
-  Format.fprintf ppf "\"%s\"" (unicode_to_string s);
-  Format.fprintf ppf "]@]"
+    Format.fprintf ppf "@[U+%04x %s (%a)@]@ " (Uchar.to_int u) (Uucp.Name.name u) Uucp.Block.pp (Uucp.Block.block u));
+  Format.fprintf ppf "@]\n"
+
+
 let unicode = with_printer pp_unicode unicode
 
 let () =
@@ -68,6 +70,6 @@ let () =
             norm `NFKD nfkc;
             norm `NFKD nfkd]
       ] in
-    (* check_eq ~pp:(pp_list pp_unicode) [nfd; nfkc] [nfd; (norm `NFKC nfd)]; *)
-    check (List.for_all (fun (s, eqs) ->
-      List.for_all (fun s' -> s = s') eqs) tests)
+    tests |> List.iter (fun (s, eqs) ->
+       List.iter (fun s' -> check_eq ~pp:pp_unicode s s') eqs)
+
