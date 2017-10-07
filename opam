@@ -13,7 +13,6 @@ depends: [
   "ocamlbuild" {build}
   "ocamlfind" {build}
   "topkg" {build & >= "0.7.4"}
-  "notty"
   "cmdliner"
   "ocplib-endian"
   "afl-persistent" {>= "1.1"}

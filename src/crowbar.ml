@@ -330,12 +330,8 @@ let src_of_seed seed =
   Random (Random.State.make seed)
 
 let run_test ~mode ~silent ?(verbose=false) (Test (name, gens, f)) =
-  let show_status_line ?(clear=false) ?(c=Notty.A.empty) stat =
-    let open Notty in
-    Notty_unix.output_image_size ~clear (fun (w, _) ->
-      let i1 = I.string c name in
-      let i2 = I.strf ~attr:c "[%04s]" stat in
-      I.(i1 <|> void (min w 80 - width i1 - width i2) 1 <|> i2));
+  let show_status_line ?(clear=false) stat =
+    Printf.printf "%s\n" stat;
     if clear then print_newline ();
     flush stdout in
   let ppf = Format.std_formatter in
@@ -368,15 +364,15 @@ let run_test ~mode ~silent ?(verbose=false) (Test (name, gens, f)) =
       match classify_status status with
       | `Pass ->
          show_status_line
-           ~clear:true ~c:Notty.A.(fg green) "PASS";
+           ~clear:true "PASS";
          if verbose then pp ppf "%a@." print_status status
       | `Fail ->
          show_status_line
-           ~clear:true ~c:Notty.A.(fg lightred ++ st bold) "FAIL";
+           ~clear:true "FAIL";
          pp ppf "%a@." print_status status;
       | `Bad ->
          show_status_line
-           ~clear:true ~c:Notty.A.(fg yellow) "BAD";
+           ~clear:true "BAD";
          pp ppf "%a@." print_status status;
     end;
   status
