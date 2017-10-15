@@ -331,7 +331,7 @@ let src_of_seed seed =
 
 let run_test ~mode ~silent ?(verbose=false) (Test (name, gens, f)) =
   let show_status_line ?(clear=false) stat =
-    Printf.printf "%s\n" stat;
+    Printf.printf "%s: %s\n" name stat;
     if clear then print_newline ();
     flush stdout in
   let ppf = Format.std_formatter in
