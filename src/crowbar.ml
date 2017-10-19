@@ -186,7 +186,13 @@ let rec generate : type a . int -> state -> a gen -> a * unit printer =
        | [] -> acc
        | _ :: xs -> len (1 + acc) xs in
      let n = len 0 gens in
-     let v, pvs = gen_apply (size / n) input gens f in
+     (* the size parameter is (apparently?) meant to ensure that generation
+        eventually terminates, by limiting the set of options from which the
+        generator might choose once we've gotten deep into a tree.  make sure we
+        always mark our passing, even when we've mapped one value into another,
+        so we don't blow the stack. *)
+     let size = if n < 2 then size - 1 else (size / n) in
+     let v, pvs = gen_apply size input gens f in
      begin match v with
        | Ok v -> v, pvs
        | Error (e, bt) -> raise (GenFailed (e, bt, pvs))
