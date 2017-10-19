@@ -410,11 +410,12 @@ let run_all_tests tests =
          let chan = open_in file in
          let state = { chan = Chan chan; buf = Bytes.make 256 '0';
                        offset = 0; len = 0 } in
-         let test = List.nth tests (choose (List.length tests) state) in
-         let status = run_test ~mode:(`Once state)
-                               ~silent:false
-                               ~verbose
-                               test in
+         let status =
+           try run_test ~mode:(`Once state) ~silent:false ~verbose @@
+             List.nth tests (choose (List.length tests) state)
+           with 
+           BadTest s -> BadInput s
+         in
          close_in chan;
          match classify_status status with
          | `Pass | `Bad -> ()
