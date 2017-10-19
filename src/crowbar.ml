@@ -1,4 +1,4 @@
-type src = Random of Random.State.t | Chan of in_channel
+type src = Random of Random.State.t | Fd of Unix.file_descr
 type state =
   {
     chan : src;
@@ -53,8 +53,8 @@ let get_data chan buf off len =
        Bytes.set buf i (Char.chr (Random.State.bits rand land 0xff))
      done;
      len - off
-  | Chan ch ->
-     input ch buf off len
+  | Fd ch ->
+     Unix.read ch buf off len
 
 let refill src =
   assert (src.offset <= src.len);
@@ -407,8 +407,8 @@ let run_all_tests tests =
      (* AFL mode *)
      let verbose = (Array.length Sys.argv = 3) in
      AflPersistent.run (fun () ->
-         let chan = open_in file in
-         let state = { chan = Chan chan; buf = Bytes.make 256 '0';
+         let fd = Unix.openfile file [Unix.O_RDONLY] 0o000 in
+         let state = { chan = Fd fd; buf = Bytes.make 256 '0';
                        offset = 0; len = 0 } in
          let status =
            try run_test ~mode:(`Once state) ~silent:false ~verbose @@
@@ -416,7 +416,7 @@ let run_all_tests tests =
            with 
            BadTest s -> BadInput s
          in
-         close_in chan;
+         Unix.close fd;
          match classify_status status with
          | `Pass | `Bad -> ()
          | `Fail ->
