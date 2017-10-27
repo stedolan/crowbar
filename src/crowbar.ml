@@ -9,25 +9,28 @@ type state =
 
 type 'a printer = Format.formatter -> 'a -> unit
 
+type 'a code = 'a Ppx_stage.code
+
 
 type 'a gen =
-  | Const of 'a
+  | Const of 'a code
   | Choose of 'a gen list
   | Map : ('f, 'a) gens * 'f -> 'a gen
   | Option : 'a gen -> 'a option gen
   | List : 'a gen -> 'a list gen
   | List1 : 'a gen -> 'a list gen
   | Join : 'a gen gen -> 'a gen
-  | Primitive of (state -> 'a)
+  | Primitive of (state -> 'a code)
   | Print of 'a printer * 'a gen
+  | Unlazy of 'a gen Lazy.t
 and ('k, 'res) gens =
-  | [] : ('res, 'res) gens
-  | (::) : 'a gen * ('k, 'res) gens -> ('a -> 'k, 'res) gens
+  | [] : ('res code, 'res) gens
+  | (::) : 'a gen * ('k, 'res) gens -> ('a code -> 'k, 'res) gens
 
 type nonrec +'a list = 'a list = [] | (::) of 'a * 'a list
 
-let unlazy f =
-  Join (Primitive (fun _ -> Lazy.force f))
+let unlazy f = Unlazy f
+
 let map gens f = Map (gens, f)
 
 let const x = map [] x
@@ -38,7 +41,7 @@ let list1 gen = List1 gen
 let join ggen = Join ggen
 let with_printer pp gen = Print (pp, gen)
 
-let bind x f = join (map [x] f)
+(* let bind x f = join (map [x] f) FIXME *)
 
 
 let pp = Format.fprintf
@@ -105,8 +108,11 @@ let read_bool src =
   let n = read_byte src in
   n land 1 = 1
 
-let uint8 = Print(pp_int, Primitive read_byte)
-let bool = Print(pp_bool, Primitive read_bool)
+let fmt_primitive fn lift = 
+  Primitive (fun src -> lift (fn src))
+
+let uint8 = Print(pp_int, fmt_primitive read_byte Ppx_stage.Lift.int)
+let bool = Print(pp_bool, fmt_primitive read_bool Ppx_stage.Lift.bool)
 
 
 let read_int32 src =
@@ -117,37 +123,41 @@ let read_int64 src =
   let off = getbytes src 8 in
   EndianBytes.LittleEndian.get_int64 src.buf off
 
-let int8 = Print(pp_int, Map ([uint8], fun n -> n - 128))
-let int32 = Print (pp_int32, Primitive read_int32)
-let int64 = Print (pp_int64, Primitive read_int64)
+(* FIXME locations *)
+let int8 = Print(pp_int, Map ([uint8], fun n -> assert false (*[%stage [%e n] - 128]*)))
+let int32 = Print (pp_int32, fmt_primitive read_int32 Ppx_stage.Lift.int32)
+let int64 = Print (pp_int64, fmt_primitive read_int64 Ppx_stage.Lift.int64)
 
 let int =
-  Print (pp_int,
-    if Sys.word_size <= 32 then
-      Map([int32], Int32.to_int)
-    else
-      Map([int64], Int64.to_int))
+  if Sys.word_size <= 32 then
+    fmt_primitive (fun s -> Int32.to_int (read_int32 s)) Ppx_stage.Lift.int
+  else
+    fmt_primitive (fun s -> Int64.to_int (read_int64 s)) Ppx_stage.Lift.int
 
-let float = Print (pp_float, Primitive (fun src ->
-  let off = getbytes src 8 in
-  EndianBytes.LittleEndian.get_double src.buf off))
+let float =
+  fmt_primitive (fun src ->
+      let off = getbytes src 8 in
+      EndianBytes.LittleEndian.get_double src.buf off) Ppx_stage.Lift.float
 
 (* maybe print as a hexdump? *)
-let bytes = Print (pp_string, Primitive (fun src ->
-  (* null-terminated, with '\001' as an escape code *)
-  let buf = Bytes.make 64 '\255' in
-  let rec read_bytes p =
-    if p >= Bytes.length buf then p else
-    match read_char src with
-    | '\000' -> p
-    | '\001' ->
-       Bytes.set buf p (read_char src);
-       read_bytes (p + 1)
-    | c ->
-       Bytes.set buf p c;
-       read_bytes (p + 1) in
-  let count = read_bytes 0 in
-  Bytes.sub_string buf 0 count))
+let bytes = fmt_primitive 
+  (fun src ->
+    (* null-terminated, with '\001' as an escape code *)
+    let buf = Bytes.make 64 '\255' in
+    let rec read_bytes p =
+      if p >= Bytes.length buf then p else
+      match read_char src with
+      | '\000' -> p
+      | '\001' ->
+         Bytes.set buf p (read_char src);
+         read_bytes (p + 1)
+      | c ->
+         Bytes.set buf p c;
+         read_bytes (p + 1) in
+    let count = read_bytes 0 in
+    Bytes.sub_string buf 0 count)
+  Ppx_stage.Lift.string
+                             
 
 let choose_int n state =
   assert (n > 0);
@@ -158,14 +168,14 @@ let choose_int n state =
   else
     Int64.(to_int (abs (rem (read_int64 state) (of_int n))))
 
-let range n = Print (pp_int, Primitive (choose_int n))
+let range n = fmt_primitive (choose_int n) Ppx_stage.Lift.int
 
-exception GenFailed of exn * Printexc.raw_backtrace * unit printer
+exception GenFailed of exn * Printexc.raw_backtrace
 
-let rec generate : type a . int -> state -> a gen -> a * unit printer =
+let rec generate : type a . int -> state -> a gen -> a code =
   fun size input gen -> match gen with
   | Const k ->
-     k, fun ppf () -> pp ppf "?"
+     k
   | Choose xs ->
      (* FIXME: better distribution? *)
      (* FIXME: choices of size > 255? *)
@@ -177,85 +187,77 @@ let rec generate : type a . int -> state -> a gen -> a * unit printer =
        else
          xs in
      let n = choose_int (List.length gens) input in
-     let v, pv = generate size input (List.nth gens n) in
-     v, fun ppf () -> pp ppf "#%d %a" n pv ()
+     let v = generate size input (List.nth gens n) in
+     v
   | Map ([], k) ->
-     k, fun ppf () -> pp ppf "?"
+     k
   | Map (gens, f) ->
      let rec len : type k res . int -> (k, res) gens -> int =
        fun acc xs -> match xs with
        | [] -> acc
        | _ :: xs -> len (1 + acc) xs in
      let n = len 0 gens in
-     let v, pvs = gen_apply (size / n) input gens f in
-     begin match v with
-       | Ok v -> v, pvs
-       | Error (e, bt) -> raise (GenFailed (e, bt, pvs))
-     end
+     gen_apply (size / n) input gens f
   | Option gen ->
      if read_bool input then
-       let v, pv = generate size input gen in
-       Some v, fun ppf () -> pp ppf "Some (%a)" pv ()
+       let v = generate size input gen in
+       [%code Some [%e v]]
      else
-       None, fun ppf () -> pp ppf "None"
+       [%code None]
   | List gen ->
      let elems = generate_list size input gen in
-     List.map fst elems,
-       fun ppf () -> pp_list (fun ppf (v, pv) -> pv ppf ()) ppf elems
+     elems
   | List1 gen ->
      let elems = generate_list1 size input gen in
-     List.map fst elems,
-       fun ppf () -> pp_list (fun ppf (v, pv) -> pv ppf ()) ppf elems
+     elems
   | Join gengen ->
-     let gen, pgen = generate size input gengen in
-     let v, pv = generate size input gen in
-     v, fun ppf () -> pp ppf "@[<hv 1>[%a; %a]@]" pgen () pv ()
-  | Primitive gen ->
-     gen input, fun ppf () -> pp ppf "?"
-  | Print (ppv, gen) ->
+     let gen = generate size input gengen in
+     (* FIXME: What, if anything, does this do? *)
+     let v = generate size input (Ppx_stage.run gen) in
+     v
+  | Primitive gen -> gen input
+  | Unlazy f -> generate size input (Lazy.force f)
+  | Print (ppv, gen) -> assert false
+
+
+(*
      let v, pv = generate size input gen in
      v, fun ppf () -> ppv ppf v
+*)
 
-and generate_list : type a . int -> state -> a gen -> (a * unit printer) list =
+and generate_list : type a . int -> state -> a gen -> a list code =
   fun size input gen ->
   if read_bool input then
     generate_list1 size input gen
   else
-    []
+    [%code []]
 
-and generate_list1 : type a . int -> state -> a gen -> (a * unit printer) list =
+and generate_list1 : type a . int -> state -> a gen -> a list code =
   fun size input gen ->
   let ans = generate size input gen in
-  ans :: generate_list size input gen
+  [%code [%e ans] :: [%e generate_list size input gen]]
 
 and gen_apply :
     type k res . int -> state ->
        (k, res) gens -> k ->
-       (res, exn * Printexc.raw_backtrace) result * unit printer =
+       res code =
   fun size state gens f ->
   let rec go :
     type k res . int -> state ->
        (k, res) gens -> k ->
-       (res, exn * Printexc.raw_backtrace) result * unit printer list =
+       res code =
       fun size input gens -> match gens with
-      | [] -> fun x -> Ok x, []
+      | [] -> fun x -> x
       | g :: gs -> fun f ->
-        let v, pv = generate size input g in
-        let res, pvs =
+        let v = generate size input g in
+        let res =
           match f v with
           | exception (BadTest _ as e) -> raise e
-          | exception e ->
-             Error (e, Printexc.get_raw_backtrace ()) , []
+          | exception e -> raise (GenFailed (e, Printexc.get_raw_backtrace ()))
           | fv -> go size input gs fv in
-        res, pv :: pvs in
-  let v, pvs = go size state gens f in
-  let pvs = fun ppf () ->
-    match pvs with
-    | [pv] ->
-       pv ppf ()
-    | pvs ->
-       pp_list (fun ppf pv -> pv ppf ()) ppf pvs in
-  v, pvs
+        res in
+  let v = go size state gens f in
+  v
 
 
 let fail s = raise (FailedTest (fun ppf () -> pp_string ppf s))
@@ -283,19 +285,25 @@ let () = Printexc.record_backtrace true
 type test = Test : string * ('f, unit) gens * 'f -> test
 
 type test_status =
-  | TestPass of unit printer
+  | TestPass of unit code
   | BadInput of string
-  | GenFail of exn * Printexc.raw_backtrace * unit printer
-  | TestExn of exn * Printexc.raw_backtrace * unit printer
-  | TestFail of unit printer * unit printer
+  | GenFail of exn * Printexc.raw_backtrace
+  | TestExn of unit code * exn * Printexc.raw_backtrace
+  | TestFail of unit code * unit printer * Printexc.raw_backtrace
 
 let run_once (gens : (_, unit) gens) f state =
   match gen_apply 100 state gens f with
-  | Ok (), pvs -> TestPass pvs
-  | Error (FailedTest p, bt), pvs -> TestFail (p, pvs)
-  | Error (e, bt), pvs -> TestExn (e, bt, pvs)
+  | t ->
+     begin match Ppx_stage.run t with
+     | () ->
+        TestPass t
+     | exception (FailedTest p) ->
+        TestFail (t, p, Printexc.get_raw_backtrace ())
+     | exception e ->
+        TestExn (t, e, Printexc.get_raw_backtrace ())
+     end
   | exception (BadTest s) -> BadInput s
-  | exception (GenFailed (e, bt, pvs)) -> GenFail (e, bt, pvs)
+  | exception (GenFailed (e, bt)) -> GenFail (e, bt)
 
 let classify_status = function
   | TestPass _ -> `Pass
@@ -304,30 +312,29 @@ let classify_status = function
   | TestExn _ | TestFail _ -> `Fail
 
 let print_status ppf status =
+  let pp_long_string ppf s =
+    s |> Str.split (Str.regexp "\n") |> List.iter (pp ppf "@,%s") in
   let print_ex ppf (e, bt) =
     pp ppf "%s" (Printexc.to_string e);
-    bt
-    |> Printexc.raw_backtrace_to_string
-    |> Str.split (Str.regexp "\n")
-    |> List.iter (pp ppf "@,%s") in
+    bt |> Printexc.raw_backtrace_to_string |> pp_long_string ppf in
   match status with
-  | TestPass pvs ->
-     pp ppf "When given the input:@.@[<v 4>@,%a@,@]@.the test passed."
-        pvs ()
+  | TestPass c ->
+     pp ppf "The following testcase passed:@.@[<v 4>@,%a@,@]@."
+        Ppx_stage.print c
   | BadInput s ->
      pp ppf "The testcase was invalid:@.%s" s
-  | GenFail (e, bt, pvs) ->
-     pp ppf "When given the input:@.@[<4>%a@]@.the testcase generator threw an exception:@.@[<v 4>@,%a@,@]"
-        pvs ()
+  | GenFail (e, bt) ->
+     pp ppf "The testcase generator threw an exception:@.@[<v 4>@,%a@,@]"
         print_ex (e, bt)
-  | TestExn (e, bt, pvs) ->
-     pp ppf "When given the input:@.@[<v 4>@,%a@,@]@.the test threw an exception:@.@[<v 4>@,%a@,@]"
-        pvs ()
+  | TestExn (t, e, bt) ->
+     pp ppf "The test threw an exception:@.@[<v 4>@,%a@,@]@.on the following testcase:@.@[<v 4>@,%a@,@]@."
         print_ex (e, bt)
-  | TestFail (err, pvs) ->
-     pp ppf "When given the input:@.@[<v 4>@,%a@,@]@.the test failed:@.@[<v 4>@,%a@,@]"
-        pvs ()
+        Ppx_stage.print t
+  | TestFail (t, err, bt) ->
+     (* FIXME: do we want the backtrace also? *)
+     pp ppf "The test failed:@.@[<v 4>@,%a@,@]@.on the following testcase@.@[<v 4>@,%a@,@]@."
         err ()
+        Ppx_stage.print t
 
 type mode =
   (* run whichever test this file says to run *)
@@ -358,7 +365,7 @@ let run_test ~mode ~silent ?(verbose=false) (Test (name, gens, f)) =
   | `Once state ->
      run_once gens f state
   | `Repeat iters ->
-     let worst_status = ref (TestPass (fun ppf () -> ())) in
+     let worst_status = ref (TestPass [%code ()]) in
      let npass = ref 0 in
      let nbad = ref 0 in
      while !npass < iters && classify_status !worst_status = `Pass do

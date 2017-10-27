@@ -3,4 +3,5 @@
 (library
  ((name crowbar)
   (public_name crowbar)
+  (preprocess (pps (ppx_stage.ppx)))
   (libraries (ocplib-endian afl-persistent str))))

@@ -2,11 +2,13 @@ type state
 
 type 'a printer = Format.formatter -> 'a -> unit
 
+type 'a code = 'a Ppx_stage.code
+
 type 'a gen
 
 type ('k, 'res) gens =
-  | [] : ('res, 'res) gens
-  | (::) : 'a gen * ('k, 'res) gens -> ('a -> 'k, 'res) gens
+  | [] : ('res code, 'res) gens
+  | (::) : 'a gen * ('k, 'res) gens -> ('a code -> 'k, 'res) gens
 (* re-export stdlib's list
    We only want to override [] syntax in the argument to Map *)
 type nonrec +'a list = 'a list = [] | (::) of 'a * 'a list
@@ -15,11 +17,11 @@ val map : ('f, 'a) gens -> 'f -> 'a gen
 
 val join : 'a gen gen -> 'a gen
 
-val bind : 'a gen -> ('a -> 'b gen) -> 'b gen
+(* FIXME val bind : 'a gen -> ('a code -> 'b gen) -> 'b gen *)
 
 val unlazy : 'a gen Lazy.t -> 'a gen
 
-val const : 'a -> 'a gen
+val const : 'a code -> 'a gen
 val choose : 'a gen list -> 'a gen
 
 val option : 'a gen -> 'a option gen

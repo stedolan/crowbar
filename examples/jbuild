@@ -1,8 +1,9 @@
 (jbuild_version 1)
 
 (executable
- ((name test_uunf) (libraries (uunf uutf uucp crowbar)) (modules test_uunf)))
+ ((name test_uunf) (libraries (uunf uutf uucp crowbar)) (preprocess (pps (ppx_stage.ppx))) (modules test_uunf)))
 
 (executable
- ((name test_xmldiff) (libraries (xmldiff crowbar)) (modules test_xmldiff)))
+ ((name test_xmldiff) (libraries (xmldiff crowbar)) (preprocess (pps (ppx_stage.ppx)))
+ (modules test_xmldiff)))
 
