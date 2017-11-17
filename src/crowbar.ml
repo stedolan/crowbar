@@ -21,7 +21,6 @@ type 'a gen =
   | List1 : 'a gen -> 'a list gen
   | Join : 'a gen gen -> 'a gen
   | Primitive of (state -> 'a code)
-  | Print of 'a printer * 'a gen
   | Unlazy of 'a gen Lazy.t
 and ('k, 'res) gens =
   | [] : ('res code, 'res) gens
@@ -39,7 +38,6 @@ let option gen = Option gen
 let list gen = List gen
 let list1 gen = List1 gen
 let join ggen = Join ggen
-let with_printer pp gen = Print (pp, gen)
 
 (* let bind x f = join (map [x] f) FIXME *)
 
@@ -111,8 +109,8 @@ let read_bool src =
 let fmt_primitive fn lift = 
   Primitive (fun src -> lift (fn src))
 
-let uint8 = Print(pp_int, fmt_primitive read_byte Ppx_stage.Lift.int)
-let bool = Print(pp_bool, fmt_primitive read_bool Ppx_stage.Lift.bool)
+let uint8 = fmt_primitive read_byte Ppx_stage.Lift.int
+let bool = fmt_primitive read_bool Ppx_stage.Lift.bool
 
 
 let read_int32 src =
@@ -124,9 +122,9 @@ let read_int64 src =
   EndianBytes.LittleEndian.get_int64 src.buf off
 
 (* FIXME locations *)
-let int8 = Print(pp_int, Map ([uint8], fun n -> assert false (*[%stage [%e n] - 128]*)))
-let int32 = Print (pp_int32, fmt_primitive read_int32 Ppx_stage.Lift.int32)
-let int64 = Print (pp_int64, fmt_primitive read_int64 Ppx_stage.Lift.int64)
+let int8 = fmt_primitive (fun s -> read_byte s - 128) Ppx_stage.Lift.int
+let int32 = fmt_primitive read_int32 Ppx_stage.Lift.int32
+let int64 = fmt_primitive read_int64 Ppx_stage.Lift.int64
 
 let int =
   if Sys.word_size <= 32 then
@@ -217,7 +215,6 @@ let rec generate : type a . int -> state -> a gen -> a code =
      v
   | Primitive gen -> gen input
   | Unlazy f -> generate size input (Lazy.force f)
-  | Print (ppv, gen) -> assert false
 
 
 (*

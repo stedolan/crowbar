@@ -28,8 +28,6 @@ val option : 'a gen -> 'a option gen
 val list : 'a gen -> 'a list gen
 val list1 : 'a gen -> 'a list gen
 
-val with_printer : 'a printer -> 'a gen -> 'a gen
-
 (* some builtin generators for primitive types *)
 
 val int : int gen
