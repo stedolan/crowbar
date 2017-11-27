@@ -167,6 +167,18 @@ let range n = Print (pp_int, Primitive (choose_int n))
 
 exception GenFailed of exn * Printexc.raw_backtrace * unit printer
 
+let minimize_depth : type a . a gen list -> a gen list = fun gens ->
+  let only_branchless = List.filter (function
+      | Const _ -> true | _ -> false) gens in
+  let without_branchy = List.filter (function Map _ | Join _ | Choose _ -> false
+                                            | _ -> true) gens in
+  let without_maps = List.filter (function Map _ -> false | _ -> true) gens in
+  match only_branchless, without_branchy, without_maps with
+  | x::xs, _    , _     -> x :: xs
+  | [],    x::xs, _     -> x :: xs
+  | [],    [],    x::xs -> x :: xs
+  | [],    [],    []    -> gens
+
 let rec generate : type a . int -> state -> a gen -> a * unit printer =
   fun size input gen -> match gen with
   | Const k ->
@@ -174,13 +186,7 @@ let rec generate : type a . int -> state -> a gen -> a * unit printer =
   | Choose xs ->
      (* FIXME: better distribution? *)
      (* FIXME: choices of size > 255? *)
-     let gens =
-       if size <= 1 then
-         match List.filter (function Const _ -> true | _ -> false) xs with
-         | [] -> xs
-         | small -> small
-       else
-         xs in
+     let gens = if size <= 1 then minimize_depth xs else xs in
      let n = choose_int (List.length gens) input in
      let v, pv = generate size input (List.nth gens n) in
      v, fun ppf () -> pp ppf "#%d %a" n pv ()
@@ -233,8 +239,7 @@ let rec generate : type a . int -> state -> a gen -> a * unit printer =
 
 and generate_list : type a . int -> state -> a gen -> (a * unit printer) list =
   fun size input gen ->
-  if size <= 1 then
-    []
+  if size <= 1 then []
   else if read_bool input then
     generate_list1 size input gen
   else
