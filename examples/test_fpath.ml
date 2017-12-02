@@ -2,7 +2,7 @@ open Crowbar
 open Astring
 open Fpath
 let fpath =
-  Map ([bytes], fun s ->
+  map [bytes] (fun s ->
     try
       v s
     with

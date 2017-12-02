@@ -1,21 +1,24 @@
 open Crowbar
 open PPrint
 type t = (string * PPrint.document)
-let rec doc = Choose [
-  Const ("", empty);
-  Const ("a", char 'a');
-  Const ("123", string "123");
-  Const ("Hello", string "Hello");
-  Const ("awordwhichisalittlebittoolong", 
+
+let rec doc = lazy (choose [
+  const ("", empty);
+  const ("a", char 'a');
+  const ("123", string "123");
+  const ("Hello", string "Hello");
+  const ("awordwhichisalittlebittoolong", 
          string "awordwhichisalittlebittoolong");
-  Const ("", hardline);
-  Map ([range 10], fun n -> ("", break n));
-  Map ([range 10], fun n -> ("", break n));
-  Map ([doc; doc], fun (sa,da) (sb,db) -> (sa ^ sb, da ^^ db));
-  Map ([range 10; doc], fun n (s,d) -> (s, nest n d));
-  Map ([doc], fun (s, d) -> (s, group d));
-  Map ([doc], fun (s, d) -> (s, align d))
-]
+  const ("", hardline);
+  map [range 10] (fun n -> ("", break n));
+  map [range 10] (fun n -> ("", break n));
+  map [(unlazy doc); (unlazy doc)] (fun (sa,da) (sb,db) -> (sa ^ sb, da ^^ db));
+  map [range 10; (unlazy doc)] (fun n (s,d) -> (s, nest n d));
+  map [unlazy doc] (fun (s, d) -> (s, group d));
+  map [unlazy doc] (fun (s, d) -> (s, align d))
+])
+
+let lazy doc = doc
 
 let check_doc (s, d) =
   let b = Buffer.create 100 in
@@ -36,4 +39,3 @@ let check_doc (s, d) =
 
 let () =
   add_test ~name:"pprint" [doc] check_doc
-
