@@ -19,29 +19,32 @@ let check_map ((list, map) : t) =
   List.for_all (fun (k, v) -> Map.find k map = v) list && 
     list = Map.bindings map
 
-let rec map : t gen = Choose [
-  Const ([], Map.empty);
-  Map ([uint8; uint8; map], fun k v (l, m) ->
+let rec map_gen : t gen Lazy.t = lazy (choose [
+  const ([], Map.empty);
+  Crowbar.map [uint8; uint8; (unlazy map_gen)] (fun k v (l, m) ->
     (k, v) :: l, Map.add k v m);
-  Map ([uint8; uint8], fun k v ->
+  Crowbar.map [uint8; uint8] (fun k v ->
     [k, v], Map.singleton k v);
-  Map ([uint8; map], fun k (l, m) ->
+  Crowbar.map [uint8; unlazy map_gen] (fun k (l, m) ->
     let rec rem_all k l =
       let l' = List.remove_assoc k l in
       if l = l' then l else rem_all k l' in
     rem_all k l, Map.remove k m);
   (* merge? *)
-  Map ([map; map], fun (l, m) (l', m') ->
+  Crowbar.map [unlazy map_gen; unlazy map_gen] (fun (l, m) (l', m') ->
     l @ l', Map.union (fun k a b -> Some a) m m');
-  Map ([uint8; map], fun k (list, map) ->
+  Crowbar.map [uint8; unlazy map_gen] (fun k (list, map) ->
     let (l, v, r) = Map.split k map in
     let (l', vr') = List.partition (fun (kx,vx) -> kx < k) list in
     let r' = List.filter (fun (kx, vx) -> kx <> k) vr' in
     let v' = match List.assoc k vr' with n -> Some n | exception Not_found -> None in
     assert (v = v');
     (l' @ List.map (fun (k,v) -> k,v+42) r',
-     Map.union (fun k a b -> assert false) l (Map.map (fun v -> v + 42) r)))]
+     Map.union (fun k a b -> assert false) l (Map.map (fun v -> v + 42) r)))
+])
+
+let (lazy map_gen) = map_gen
 
 let () =
-  add_test ~name:"map" [map] @@ fun m ->
+  add_test ~name:"map" [map_gen] @@ fun m ->
     check (check_map m)
