@@ -16,7 +16,7 @@ let check_map ((list, map) : t) =
   let list = match List.stable_sort (fun a b -> compare (fst a) (fst b)) list with
     | [] -> []
     | (k, v) :: rest -> (k, v) :: dedup k rest in
-  List.for_all (fun (k, v) -> Map.find k map = v) list && 
+  List.for_all (fun (k, v) -> Map.find k map = v) list &&
     list = Map.bindings map
 
 let map_gen : t gen = fix (fun map_gen -> choose [
