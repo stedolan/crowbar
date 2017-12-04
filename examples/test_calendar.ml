@@ -3,7 +3,7 @@ open Crowbar
 module C = CalendarLib.Calendar.Precise
 
 let time =
-  Map ([int64], fun a ->
+  map [int64] (fun a ->
     try
       C.from_mjd (Int64.to_float a /. 100_000_000_000_000.)
     with
@@ -17,10 +17,10 @@ let pp_time ppf t =
      (C.hour t)
      (C.minute t)
      (C.second t)
-let time = Print (pp_time, time)
+let time = with_printer pp_time time
 
 let period =
-  Map ([Const 0;Const 0;int8;int8;int8;int8], C.Period.make)
+  map [const 0;const 0;int8;int8;int8;int8] C.Period.make
 
 
 let () =
