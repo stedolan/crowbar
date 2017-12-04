@@ -28,6 +28,11 @@ type nonrec +'a list = 'a list = [] | (::) of 'a * 'a list
 
 let unlazy f =
   Join (Primitive (fun _ -> Lazy.force f))
+
+let fix f =
+  let rec lazygen = lazy (f (unlazy lazygen)) in
+  unlazy lazygen
+
 let map gens f = Map (gens, f)
 
 let const x = map [] x
