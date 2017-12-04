@@ -10,7 +10,7 @@ let time =
       CalendarLib.Date.Out_of_bounds -> bad_test ())
 
 let pp_time ppf t =
-  pp ppf "%04d-%02d-%02d %02d:%02d:%02d" 
+  pp ppf "%04d-%02d-%02d %02d:%02d:%02d"
      (C.year t)
      (C.month t |> C.Date.int_of_month)
      (C.day_of_month t)

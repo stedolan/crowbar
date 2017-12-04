@@ -37,4 +37,3 @@ let check_doc (s, d) =
 
 let () =
   add_test ~name:"pprint" [doc] check_doc
-
