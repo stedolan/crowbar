@@ -18,6 +18,7 @@ type 'a gen =
   | List : 'a gen -> 'a list gen
   | List1 : 'a gen -> 'a list gen
   | Join : 'a gen gen -> 'a gen
+  | Unlazy of 'a gen Lazy.t
   | Primitive of (state -> 'a)
   | Print of 'a printer * 'a gen
 and ('k, 'res) gens =
@@ -26,8 +27,7 @@ and ('k, 'res) gens =
 
 type nonrec +'a list = 'a list = [] | (::) of 'a * 'a list
 
-let unlazy f =
-  Join (Primitive (fun _ -> Lazy.force f))
+let unlazy f = Unlazy f
 
 let fix f =
   let rec lazygen = lazy (f (unlazy lazygen)) in
@@ -197,7 +197,7 @@ let rec generate : type a . int -> state -> a gen -> a * unit printer =
         generator might choose once we've gotten deep into a tree.  make sure we
         always mark our passing, even when we've mapped one value into another,
         so we don't blow the stack. *)
-     let size = if n < 2 then size - 1 else (size / n) in
+     let size = (size - 1) / n in
      let v, pvs = gen_apply size input gens f in
      begin match v with
        | Ok v -> v, pvs
@@ -223,21 +223,25 @@ let rec generate : type a . int -> state -> a gen -> a * unit printer =
      v, fun ppf () -> pp ppf "@[<hv 1>[%a; %a]@]" pgen () pv ()
   | Primitive gen ->
      gen input, fun ppf () -> pp ppf "?"
+  | Unlazy gen ->
+     generate size input (Lazy.force gen)
   | Print (ppv, gen) ->
      let v, pv = generate size input gen in
      v, fun ppf () -> ppv ppf v
 
 and generate_list : type a . int -> state -> a gen -> (a * unit printer) list =
   fun size input gen ->
-  if read_bool input then
+  if size <= 1 then
+    []
+  else if read_bool input then
     generate_list1 size input gen
   else
     []
 
 and generate_list1 : type a . int -> state -> a gen -> (a * unit printer) list =
   fun size input gen ->
-  let ans = generate size input gen in
-  ans :: generate_list size input gen
+  let ans = generate (size/2) input gen in
+  ans :: generate_list (size/2) input gen
 
 and gen_apply :
     type k res . int -> state ->
