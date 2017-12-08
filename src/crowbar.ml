@@ -204,7 +204,9 @@ let rec generate : type a . int -> state -> a gen -> a * unit printer =
        | Error (e, bt) -> raise (GenFailed (e, bt, pvs))
      end
   | Option gen ->
-     if read_bool input then
+     if size < 1 then
+       None, fun ppf () -> pp ppf "None"
+     else if read_bool input then
        let v, pv = generate size input gen in
        Some v, fun ppf () -> pp ppf "Some (%a)" pv ()
      else
