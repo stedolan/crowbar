@@ -414,9 +414,14 @@ exception TestFailure
 let run_all_tests tests =
   match Sys.argv with
   | [| _ |] ->
-     (* Quickcheck mode *)
+    (* Quickcheck mode *)
+    let exit_code = ref 0 in
      tests |> List.iter (fun t ->
-       ignore (run_test ~mode:(`Repeat 5000) ~silent:false t))
+        match (run_test ~mode:(`Repeat 5000) ~silent:false t |> classify_status) with
+        | `Fail -> exit_code := 1
+        | _ -> ()
+      );
+     exit !exit_code
   | [| _; "-i" |] ->
      (* Infinite quickcheck mode *)
      Random.self_init ();
