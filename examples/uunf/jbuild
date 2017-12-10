@@ -1,0 +1,11 @@
+(jbuild_version 1)
+
+(executable
+ ((name test_uunf) (libraries (uunf uutf uucp crowbar)))
+)
+
+(alias
+ ((name runtest)
+   (action (run ${exe:test_uunf.exe}))
+))
+

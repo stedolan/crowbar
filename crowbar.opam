@@ -15,4 +15,10 @@ depends: [
   "jbuilder" {build}
   "ocplib-endian"
   "afl-persistent" {>= "1.1"}
+  "calendar" {test}
+  "xmldiff" {test}
+  "fpath" {test}
+  "uucp" {test}
+  "uunf" {test}
+  "uutf" {test}
 ]
