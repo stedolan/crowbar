@@ -1,0 +1,11 @@
+(jbuild_version 1)
+
+(executable
+ ((name test_map)
+  (libraries (crowbar))
+))
+
+(alias
+ ((name runtest)
+  (action (run ${exe:test_map.exe}))
+))
