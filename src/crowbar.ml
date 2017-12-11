@@ -422,20 +422,20 @@ let run_test ~mode ~silent ?(verbose=false) (Test (name, gens, f)) =
   status
 
 exception TestFailure
-let run_all_tests tests =
-  match Sys.argv with
-  | [| _ |] ->
-    (* Quickcheck mode *)
-    let exit_code = ref 0 in
-     tests |> List.iter (fun t ->
+let run_all_tests file verbosity infinity tests =
+  match file, infinity with
+  | None, false ->
+    (* limited-run QuickCheck mode *)
+    let failures = ref 0 in
+    let () = tests |> List.iter (fun t ->
         match (run_test ~mode:(`Repeat 5000) ~silent:false t |> classify_status) with
-        | `Fail -> exit_code := 1
+        | `Fail -> failures := !failures + 1
         | _ -> ()
-      );
-     exit !exit_code
-  | [| _; "-i" |] ->
-     (* Infinite quickcheck mode *)
-     Random.self_init ();
+      )
+    in
+    !failures
+  | None, true ->
+    (* infinite QuickCheck mode *)
      let rec go ntests alltests tests = match tests with
        | [] ->
           go ntests alltests alltests
@@ -444,14 +444,14 @@ let run_all_tests tests =
           match classify_status (run_test ~mode:(`Once { chan = src_of_seed (Random.int64 (Int64.max_int));
                      buf = Bytes.make 256 '0';
                      offset = 0; len = 0 })  ~silent:true ~verbose:true t) with
-          | `Fail -> Printf.printf "%d\n" ntests
+          | `Fail -> Printf.printf "%d tests passed before first failure\n%!" ntests
           | _ -> go (ntests + 1) alltests rest in
-     go 0 tests tests
-  | [| _; file |]
-  | [| _; "-v"; file |] ->
-     (* AFL mode *)
-     let verbose = (Array.length Sys.argv = 3) in
-     AflPersistent.run (fun () ->
+     let () = go 0 tests tests in
+     1
+  | Some file, _ ->
+    (* AFL mode *)
+    let verbose = List.length verbosity > 0 in
+    let () = AflPersistent.run (fun () ->
          let fd = Unix.openfile file [Unix.O_RDONLY] 0o000 in
          let state = { chan = Fd fd; buf = Bytes.make 256 '0';
                        offset = 0; len = 0 } in
@@ -467,7 +467,8 @@ let run_all_tests tests =
          | `Fail ->
             Printexc.record_backtrace false;
             raise TestFailure)
-  | _ -> failwith "command line parsing is not my strong point"
+    in
+    0 (* failures come via the exception mechanism above *)
 
 let last_generated_name = ref 0
 let generate_name () =
@@ -482,54 +483,43 @@ let add_test ?name gens f =
     | Some name -> name in
   registered_tests := Test (name, gens, f) :: !registered_tests
 
+(* cmdliner stuff *)
+
+let randomness_file =
+  let doc = "A file containing some bytes, consulted in constructing test cases.  \
+    When `afl-fuzz` is calling the test binary, use `@@` to indicate that \
+    `afl-fuzz` should put its test case here \
+    (e.g. `afl-fuzz -i input -o output ./my_crowbar_test @@`).  Re-run a test by \
+    supplying the test file here \
+    (e.g. `./my_crowbar_test output/crashes/id:000000`).  If no file is \
+    specified, the test will use OCaml's Random module as a source of \
+    randomness for a predefined number of rounds." in
+  Cmdliner.Arg.(value & pos 0 (some file) None & info [] ~doc ~docv:"FILE")
+
+let verbosity =
+  let doc = "Print information on each test as it's conducted." in
+  Cmdliner.Arg.(value & flag_all & info ["v"; "verbose"] ~doc ~docv:"VERBOSE")
+
+let infinity =
+  let doc = "In non-AFL (quickcheck) mode, continue running until a test failure is \
+             discovered.  No attempt is made to track which tests have already been run, \
+             so some tests may be repeated, and if there are no failures reachable, the \
+             test will never terminate without outside intervention." in
+  Cmdliner.Arg.(value & flag & info ["i"] ~doc ~docv:"INFINITE")
+
+let crowbar_info = Cmdliner.Term.info @@ Filename.basename Sys.argv.(0)
+
 let () =
   at_exit (fun () ->
       let t = !registered_tests in
       registered_tests := [];
       match t with
       | [] -> ()
-      | t -> run_all_tests (List.rev t))
-
-(*
-
-let runs = ref 0
-let rec run_test t =
-  if Array.length Sys.argv > 1 then begin
-  AflPersistent.run (fun () ->
-      let file = open_in Sys.argv.(1) in
-      let input = { chan = Chan file;
-                    buf = Bytes.make 4096 '0';
-                    offset = 0; len = 0 } in
-      begin match generate 100 input t with
-      | Ok (), _ -> ()
-      | exception (BadTest b) ->
-         pp Format.std_formatter "bad test: %s\n" b
-      | Error perr, pv ->
-         pp Format.std_formatter
-            "Testcase: {%a}\nFailure: {%a}\n"
-            pv () perr ()
-      end;
-      close_in file)
-  end else begin
-      let file = open_in "/dev/urandom" in
-        let input = { chan = Chan file;
-                    buf = Bytes.make 4096 '0';
-                    offset = 0; len = 0 } in
-      begin match generate 100 input t with
-      | Ok (), _ -> ()
-      | exception (GenFailed (e, bt, pv)) ->
-         pp Format.std_formatter "on testcase %a\ntest threw exn: %s\n%s\n" pv () (Printexc.to_string e) (Printexc.raw_backtrace_to_string bt);
-      | exception (BadTest b) ->
-         pp Format.std_formatter "bad test: %s\n" b
-      | Error perr, pv ->
-         pp Format.std_formatter
-            "Testcase: %a\nFailure: %a\n"
-            pv () perr ()
-      end;
-      close_in file;
-      incr runs;
-      if !runs mod 1000 = 0 then Printf.printf "%d\n%!" !runs;
-      run_test t
-    end
-
-*)
+      | t ->
+        let cmd = Cmdliner.Term.(const run_all_tests $ randomness_file $ verbosity $
+                                 infinity $ const (List.rev t)) in
+        match Cmdliner.Term.eval (cmd, crowbar_info) with
+        | `Ok 0 -> exit 0
+        | `Ok _ -> exit 1
+        | n -> Cmdliner.Term.exit n
+    )
