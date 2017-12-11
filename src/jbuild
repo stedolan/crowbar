@@ -3,4 +3,4 @@
 (library
  ((name crowbar)
   (public_name crowbar)
-  (libraries (ocplib-endian afl-persistent str))))
+  (libraries (cmdliner ocplib-endian afl-persistent str))))
