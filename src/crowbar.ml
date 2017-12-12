@@ -165,7 +165,10 @@ let choose_int n state =
   else
     Int64.(to_int (abs (rem (read_int64 state) (of_int n))))
 
-let range n = Print (pp_int, Primitive (choose_int n))
+let range n =
+  if n <= 0 then
+    raise (Invalid_argument "Crowbar.range: argument must be positive");
+  Print (pp_int, Primitive (choose_int n))
 
 exception GenFailed of exn * Printexc.raw_backtrace * unit printer
 
