@@ -156,7 +156,9 @@ let bytes = Print (pp_string, Primitive (fun src ->
 
 let choose_int n state =
   assert (n > 0);
-  if (n < 100) then
+  if n = 1 then
+    0
+  else if (n < 100) then
     read_byte state mod n
   else if (n < 0x1000000) then
     Int32.(to_int (abs (rem (read_int32 state) (of_int n))))
