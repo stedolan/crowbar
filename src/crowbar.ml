@@ -9,43 +9,6 @@ type state =
 
 type 'a printer = Format.formatter -> 'a -> unit
 
-
-type 'a gen =
-  | Const of 'a
-  | Choose of 'a gen list
-  | Map : ('f, 'a) gens * 'f -> 'a gen
-  | Option : 'a gen -> 'a option gen
-  | List : 'a gen -> 'a list gen
-  | List1 : 'a gen -> 'a list gen
-  | Join : 'a gen gen -> 'a gen
-  | Unlazy of 'a gen Lazy.t
-  | Primitive of (state -> 'a)
-  | Print of 'a printer * 'a gen
-and ('k, 'res) gens =
-  | [] : ('res, 'res) gens
-  | (::) : 'a gen * ('k, 'res) gens -> ('a -> 'k, 'res) gens
-
-type nonrec +'a list = 'a list = [] | (::) of 'a * 'a list
-
-let unlazy f = Unlazy f
-
-let fix f =
-  let rec lazygen = lazy (f (unlazy lazygen)) in
-  unlazy lazygen
-
-let map gens f = Map (gens, f)
-
-let const x = map [] x
-let choose gens = Choose gens
-let option gen = Option gen
-let list gen = List gen
-let list1 gen = List1 gen
-let join ggen = Join ggen
-let with_printer pp gen = Print (pp, gen)
-
-let bind x f = join (map [x] f)
-
-
 let pp = Format.fprintf
 let pp_int ppf n = pp ppf "%d" n
 let pp_int32 ppf n = pp ppf "%s" (Int32.to_string n)
@@ -56,6 +19,7 @@ let pp_string ppf s = pp ppf "\"%s\"" (String.escaped s)
 let pp_list pv ppf l =
   pp ppf "@[<hv 1>[%a]@]"
      (Format.pp_print_list ~pp_sep:(fun ppf () -> pp ppf ";@ ") pv) l
+
 
 exception BadTest of string
 exception FailedTest of unit printer
@@ -110,9 +74,6 @@ let read_bool src =
   let n = read_byte src in
   n land 1 = 1
 
-let uint8 = Print(pp_int, Primitive read_byte)
-let bool = Print(pp_bool, Primitive read_bool)
-
 
 let read_int32 src =
   let off = getbytes src 4 in
@@ -121,6 +82,201 @@ let read_int32 src =
 let read_int64 src =
   let off = getbytes src 8 in
   EndianBytes.LittleEndian.get_int64 src.buf off
+
+
+let choose_int n state =
+  assert (n > 0);
+  if (n = 1) then
+    0
+  else if (n < 100) then
+    read_byte state mod n
+  else if (n < 0x1000000) then
+    Int32.(to_int (abs (rem (read_int32 state) (of_int n))))
+  else
+    Int64.(to_int (abs (rem (read_int64 state) (of_int n))))
+
+
+let max_small_examples = 60
+
+(* A generated value consists of a value and how to print it *)
+type 'a generated = 'a * unit printer
+
+type 'a gen = {
+  run_generator : int (* size *) -> state -> 'a generated;
+  small_examples : int -> 'a generated list;
+}
+
+let generate gen size input =
+  if size <= 1 then
+    assert false
+    (*
+    fst (List.nth gen.small_examples
+       (choose_int (List.length gen.small_examples) input))
+    *)
+  else
+    gen.run_generator size input
+
+let const k =
+  let res = (k, fun ppf () -> pp ppf "?") in
+  { run_generator = (fun size input -> res);
+    small_examples = (fun size -> if size = 1 then [res] else []); }
+
+
+let choose gens =
+  let printer i (v, pv) =
+    (v, fun ppf () -> pp ppf "#%d %a" i pv ()) in
+  let run_generator size input =
+    let n = choose_int (List.length gens) input in
+    printer n (generate (List.nth gens n) size input) in
+  let small_examples size =
+    List.concat (List.map (fun g ->
+      List.mapi printer (g.small_examples size)) gens) in
+(*
+  let rec not_too_many examples =
+    if List.length examples < 100 then
+      examples
+    else
+      let rec halve = function
+        | x :: _ :: xs -> x :: halve xs
+        | xs -> xs in
+      not_too_many (halve examples) in *)
+  { run_generator; small_examples }
+
+type ('k, 'res) gens =
+  | [] : ('res, 'res) gens
+  | (::) : 'a gen * ('k, 'res) gens -> ('a -> 'k, 'res) gens
+
+
+exception GenFailed of exn * Printexc.raw_backtrace
+
+let rec map : type k res . (k, res) gens -> k -> res gen =
+  fun gens f ->
+  let rec len : type k res . int -> (k, res) gens -> int =
+    fun acc xs -> match xs with
+    | [] -> acc
+    | _ :: xs -> len (1 + acc) xs in
+  let ngens = len 0 gens in
+
+
+  let rec run_generator size input =
+     let rec apply : type k res . (k, res) gens -> k -> unit printer list -> res generated =
+       function
+       | [] -> fun x pvs ->
+         let printer ppf () =
+           assert false in
+         x, printer
+       | g :: gs -> fun f pvs ->
+         let v, pv = generate g ((size - 1) / ngens) input in
+         match f v with
+         | fv -> apply gs fv (pv :: pvs)
+         | exception (BadTest _ as e) -> raise e
+         | exception e -> raise (GenFailed (e, Printexc.get_raw_backtrace ())) in
+     apply gens f [] in
+
+
+(*
+  (* Slight trickiness here:
+     To generate small examples for map [gens] f, we select a small example
+     for each gen and pass it to f. But, the number of such combinations grows
+     exponentially with the length of gens, and we only want a few! *)
+
+  let rec count_small_examples :
+    type k res . int -> (k, res) gens -> int =
+    fun acc gens -> match gens with
+    | [] -> acc
+    | gen :: gens ->
+       let acc = acc * List.length gen.small_examples in
+       if acc >= max_small_examples then
+         max_small_examples
+       else
+         count_small_examples acc gens in
+  let num_small_examples = count_small_examples 1 gens in
+   
+  let small_prime = 1447 in
+  let rec sample_small_examples :
+    type k res . int -> int -> (k, res) gens -> k -> (res * unit printer) =
+    fun n acc gens f -> match gens with
+    | [] ->
+       f, fun ppf () -> assert false
+    | gen :: gens ->
+       let len = List.length gen.small_examples in
+       let (i, n) = n mod len, n / len in
+       let i = (i + acc * small_prime) mod len in
+       let ex, ex_pp = List.nth gen.small_examples i in
+       sample_small_examples n i gens (f ex) in
+
+  let rec make_small_examples : int -> (res * unit printer) list = function
+    | n when n >= num_small_examples -> []
+    | n ->
+       sample_small_examples n 0 gens f :: make_small_examples (n+1) in
+*)
+
+  let rec make_small_examples :
+    type k res . int -> (k, res) gens -> k -> res list -> res list =
+    fun size gens f acc -> match gens with
+    | [] ->
+       f :: acc
+    | [g] ->
+       g.small_examples size
+       |> List.fold_left (fun (acc : res list) (v, pv) ->
+         f v :: acc) acc
+    | g :: gs ->
+       split_sizes size 0 g gs f acc
+
+  and split_sizes :
+    type a k res . int -> int -> a gen -> (k, res) gens -> (a -> k) -> res list -> res list =
+    fun total_size size g gs f acc ->
+      if size > total_size then
+        acc
+      else
+        let acc =
+          g.small_examples size
+          |> List.fold_left (fun acc (v, pv) ->
+            make_small_examples (total_size - size) gs (f v) acc
+          ) acc in
+        split_sizes total_size (size + 1) g gs f acc in
+          
+
+  { run_generator;
+    small_examples = fun size -> assert false (*make_small_examples size gens f []*) }
+
+
+(*
+type 'a gen =
+  | Const of 'a
+  | Choose of 'a gen list
+  | Map : ('f, 'a) gens * 'f -> 'a gen
+  | Option : 'a gen -> 'a option gen
+  | List : 'a gen -> 'a list gen
+  | List1 : 'a gen -> 'a list gen
+  | Join : 'a gen gen -> 'a gen
+  | Unlazy of 'a gen Lazy.t
+  | Primitive of (state -> 'a)
+  | Print of 'a printer * 'a gen
+and ('k, 'res) gens =
+  | [] : ('res, 'res) gens
+  | (::) : 'a gen * ('k, 'res) gens -> ('a -> 'k, 'res) gens
+*)
+
+type nonrec +'a list = 'a list = [] | (::) of 'a * 'a list
+
+let unlazy gen = assert false
+
+let fix f =
+  let rec lazygen = lazy (f (unlazy lazygen)) in
+  unlazy lazygen
+
+let option gen = choose [ map [gen] (fun x -> Some x) ; const None ] 
+let list gen = List gen
+let list1 gen = List1 gen
+let join ggen = Join ggen
+let with_printer pp gen = Print (pp, gen)
+
+let bind x f = join (map [x] f)
+
+
+let uint8 = Print(pp_int, Primitive read_byte)
+let bool = Print(pp_bool, Primitive read_bool)
 
 let int8 = Print(pp_int, Map ([uint8], fun n -> n - 128))
 let int32 = Print (pp_int32, Primitive read_int32)
@@ -154,23 +310,10 @@ let bytes = Print (pp_string, Primitive (fun src ->
   let count = read_bytes 0 in
   Bytes.sub_string buf 0 count))
 
-let choose_int n state =
-  assert (n > 0);
-  if n = 1 then
-    0
-  else if (n < 100) then
-    read_byte state mod n
-  else if (n < 0x1000000) then
-    Int32.(to_int (abs (rem (read_int32 state) (of_int n))))
-  else
-    Int64.(to_int (abs (rem (read_int64 state) (of_int n))))
-
 let range n =
   if n <= 0 then
     raise (Invalid_argument "Crowbar.range: argument must be positive");
   Print (pp_int, Primitive (choose_int n))
-
-exception GenFailed of exn * Printexc.raw_backtrace * unit printer
 
 let minimize_depth : type a . a gen list -> a gen list = fun gens ->
   let only_branchless = List.filter (function
