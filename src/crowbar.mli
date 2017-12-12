@@ -13,10 +13,6 @@ type nonrec +'a list = 'a list = [] | (::) of 'a * 'a list
 
 val map : ('f, 'a) gens -> 'f -> 'a gen
 
-val join : 'a gen gen -> 'a gen
-
-val bind : 'a gen -> ('a -> 'b gen) -> 'b gen
-
 val unlazy : 'a gen Lazy.t -> 'a gen
 val fix : ('a gen -> 'a gen) -> 'a gen
 
