@@ -17,7 +17,6 @@ type 'a gen =
   | Option : 'a gen -> 'a option gen
   | List : 'a gen -> 'a list gen
   | List1 : 'a gen -> 'a list gen
-  | Join : 'a gen gen -> 'a gen
   | Unlazy of 'a gen Lazy.t
   | Primitive of (state -> 'a)
   | Print of 'a printer * 'a gen
@@ -40,10 +39,7 @@ let choose gens = Choose gens
 let option gen = Option gen
 let list gen = List gen
 let list1 gen = List1 gen
-let join ggen = Join ggen
 let with_printer pp gen = Print (pp, gen)
-
-let bind x f = join (map [x] f)
 
 
 let pp = Format.fprintf
@@ -175,7 +171,7 @@ exception GenFailed of exn * Printexc.raw_backtrace * unit printer
 let minimize_depth : type a . a gen list -> a gen list = fun gens ->
   let only_branchless = List.filter (function
       | Const _ -> true | _ -> false) gens in
-  let without_branchy = List.filter (function Map _ | Join _ | Choose _ -> false
+  let without_branchy = List.filter (function Map _ | Choose _ -> false
                                             | _ -> true) gens in
   let without_maps = List.filter (function Map _ -> false | _ -> true) gens in
   match only_branchless, without_branchy, without_maps with
@@ -230,10 +226,6 @@ let rec generate : type a . int -> state -> a gen -> a * unit printer =
      let elems = generate_list1 size input gen in
      List.map fst elems,
        fun ppf () -> pp_list (fun ppf (v, pv) -> pv ppf ()) ppf elems
-  | Join gengen ->
-     let gen, pgen = generate size input gengen in
-     let v, pv = generate size input gen in
-     v, fun ppf () -> pp ppf "@[<hv 1>[%a; %a]@]" pgen () pv ()
   | Primitive gen ->
      gen input, fun ppf () -> pp ppf "?"
   | Unlazy gen ->
