@@ -515,7 +515,7 @@ let () =
       | t ->
         let cmd = Cmdliner.Term.(const run_all_tests $ randomness_file $ verbosity $
                                  infinity $ const (List.rev t)) in
-        match Cmdliner.Term.eval (cmd, crowbar_info) with
+        match Cmdliner.Term.eval ~catch:false (cmd, crowbar_info) with
         | `Ok 0 -> exit 0
         | `Ok _ -> exit 1
         | n -> Cmdliner.Term.exit n
