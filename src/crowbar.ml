@@ -1,3 +1,6 @@
+module Gen = Gen
+module Fuzz = Fuzz
+
 type src = Random of Random.State.t | Fd of Unix.file_descr
 type state =
   {
