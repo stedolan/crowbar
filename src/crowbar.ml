@@ -1,3 +1,38 @@
+include Printers
+include Gen
+include Fuzz
+
+let mk_list_gens g =
+  let rec list = lazy (choose [
+    const [];
+    unlazy list1])
+  and list1 = lazy (map [g; unlazy list] (fun x xs -> x :: xs)) in
+  unlazy list, unlazy list1
+
+let list g = mk_list_gens g |> fst |> with_component_printer (fun comps ppf list ->
+  pp_list pp_printer ppf comps)
+
+let list1 g = mk_list_gens g |> snd |> with_component_printer (fun comps ppf list ->
+  pp_list pp_printer ppf comps)
+
+
+let last_generated_name = ref 0
+let generate_name () =
+  incr last_generated_name;
+  "test" ^ string_of_int !last_generated_name
+
+let registered_tests = ref []
+
+let add_test ?name gens f =
+  let name = match name with
+    | None -> generate_name ()
+    | Some name -> name in
+  registered_tests := Test (name, gens, f) :: !registered_tests
+
+
+
+(*
+
 module Gen = Gen
 module Fuzz = Fuzz
 
@@ -523,3 +558,4 @@ let () =
         | `Ok _ -> exit 1
         | n -> Cmdliner.Term.exit n
     )
+*)

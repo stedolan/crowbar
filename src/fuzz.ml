@@ -5,6 +5,7 @@ external reset_instrumentation : bool -> unit = "caml_reset_afl_instrumentation"
 let with_instrumentation buf f =
   reset_instrumentation true;
   let v =
+    (* Sys.opaque_identity inhibits inlining *)
     match (Sys.opaque_identity f) () with
     | x -> Ok x
     | exception e -> Error e in
@@ -73,7 +74,7 @@ let fuzz (gen : (unit -> unit) gen) =
       with_instrumentation ibuf (sample_val tc) |> 
           (function Ok x -> () | Error e -> raise e);
       let count = find_new_bits ibuf seen new_hits in
-      Printf.fprintf stdout "%d %d %d\n%!" depth count (Queue.length q);
+      (* Printf.fprintf stdout "%d %d %d\n%!" depth count (Queue.length q); *)
       if count > 0 then Queue.add (depth + 1, tc) q
     done
     with e -> begin

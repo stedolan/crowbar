@@ -1,34 +1,33 @@
-type _ tag = ..
-module type T = sig 
-  type a
-  type _ tag += Tag : a tag
-end
-type 'a gen_id = (module T with type a = 'a) Lazy.t
+(*
 
-let fresh_gen_id (type aa) () : aa gen_id=
-  Lazy.from_val (module struct 
-     type a = aa
-     type _ tag += Tag : a tag
-   end : T with type a = aa)
+  Generators in crowbar parse test inputs from arbitrary bitstrings,
+  building a data structure ('a sample) that represents the test input
+  as a tree, so that it can be easily mutated.
 
-type (_,_) eqp = Eq : ('a, 'a) eqp | NotEq : ('a, 'b) eqp
+  This file contains the definition of generators and samples, basic
+  generator combinators, and the algorithms for sampling and
+  mutation. Higher-level generator combinators (e.g. lists) live in
+  crowbar.ml, and the main fuzzing loop lives in fuzz.ml.
 
-let compare_gen_id (type a) (type b) (lazy (module X) : a gen_id) (lazy (module Y) : b gen_id) : (a, b) eqp =
-  match X.Tag with
-  | Y.Tag -> Eq
-  | _ -> NotEq
+*)
 
+type 'a printer = 'a Printers.printer
 
-type 'a printer = Format.formatter -> 'a -> unit
+type 'a print_style =
+  | PrintDefault
+  | PrintValue of 'a printer
+  | PrintComponents of (unit printer list -> 'a printer)
 
 type 'a primitive_generator = Bytebuf.t -> 'a
 
-
-
 type 'a gen = {
-  id : 'a gen_id;
+  id : 'a Typed_id.t;
+
+  (* How should this generator be sampled? *)
   strategy : 'a gen_strategy;
-  printer : 'a printer option;
+
+  (* How should samples taken from this generator be printed? *)
+  printer : 'a print_style;
 
   (* How large is the smallest value that this generator can make? *)
   small_example_size : int;
@@ -49,12 +48,16 @@ and ('func, 'res) gens =
 
 type nonrec +'a list = 'a list = [] | (::) of 'a * 'a list
 
-
 let rec gens_length :
   type k res . (k, res) gens -> int =
   function
   | [] -> 0
   | g :: gs -> 1 + gens_length gs
+
+
+
+
+(* Basic combinators *)
 
 let map gens f =
   (* The small_example_size of `map gens f` is the product of the
@@ -69,9 +72,9 @@ let map gens f =
          compute_example_size (acc * s) gens
        else
          max_int in
-  { id = fresh_gen_id ();
+  { id = Typed_id.fresh ();
     strategy = Map (gens_length gens, gens, f);
-    printer = None;
+    printer = PrintDefault;
     small_example_size = compute_example_size 1 gens }
 
 
@@ -90,17 +93,17 @@ let choose gens =
   let mk_choose =
     function
     | [| |] ->
-       { id = fresh_gen_id ();
+       { id = Typed_id.fresh ();
          strategy = Choose [| |];
-         printer = None;
+         printer = PrintDefault;
          small_example_size = max_int }
     | [| g |] ->
        g  (* hobson's optimisation *)
     | arr ->
        assert (Array.length arr <= max_choose);
-       { id = fresh_gen_id ();
+       { id = Typed_id.fresh ();
          strategy = Choose arr;
-         printer = None;
+         printer = PrintDefault;
          small_example_size = arr.(0).small_example_size } in
 
   (* The length of `gens` is arbitrary, but the Choose strategy only
@@ -124,7 +127,6 @@ let choose gens =
   div_choose arr
 
 
-
 let unlazy gen =
   try Lazy.force gen with
   | Lazy.Undefined ->
@@ -133,19 +135,44 @@ let unlazy gen =
         fine, but since we should never follow the recursion when
         trying to generate a small value, we report the small example
         size as max_int *)
-     { id = fresh_gen_id ();    (* FIXME *)
+     { id = Typed_id.fresh ();    (* FIXME should this be fresh? *)
        strategy = Unlazy gen;
-       printer = None;
+       printer = PrintDefault;
        small_example_size = max_int }
 
 
+let with_printer pv gen =
+  { gen with printer = PrintValue pv }
+
+let with_component_printer pc gen =
+  { gen with printer = PrintComponents pc }
+
+
+
+
+(* 
+   Samples
+
+   Parsing some input data using a generator results in a sample,
+   which is a tree-like data structure that records the boundaries
+   between different parts of the testcase.
+
+   The tree is heterogenous, since generators are built out of
+   generators with different types. This involves some GADT mangling,
+   but not much more than the definition of `gens` above.
+
+*)
 
 
 
 type 'a sample = {
+  (* the generator from which this sample was taken *)
   generator : 'a gen;
+  (* the resulting value *)
   value : 'a;
+  (* the length in bytes of the bitstring that generates this value *)
   length : int;
+  (* the subtrees of this sample *)
   components : 'a sample_components;
 }
 
@@ -294,3 +321,104 @@ and serialize_tuple_into :
   fun ss b -> match ss with
   | TNil _ -> ()
   | TCons (s, rest) -> serialize_into s b; serialize_tuple_into rest b
+
+
+
+
+let rec print : type a . a sample printer = fun ppf s ->
+  let open Printers in
+  match s.generator.printer with
+  | PrintDefault ->
+     begin match s.components with
+     | SMap (comps, _) ->
+        pp_list pp_printer ppf (print_tuple comps)
+     | SChoose (k, s) ->
+        pp ppf "#%d %a" k print s
+     | SPrim _ ->
+        pp ppf "_"
+     end
+  | PrintValue pv ->
+     pv ppf s.value
+  | PrintComponents pcomps ->
+     let comps =
+       match s.components with
+       | SMap (comps, _) -> print_tuple comps
+       | SChoose (_, s) -> [fun ppf () -> print ppf s]
+       | SPrim _ -> [] in
+     pcomps comps ppf s.value
+
+and print_tuple : type k res . (k, res) sample_tuple -> unit printer list = function
+  | TNil _ -> []
+  | TCons (s, rest) -> (fun ppf () -> print ppf s) :: print_tuple rest
+  
+
+
+
+
+
+module Fragment_Pool : sig
+  type t
+  val add : t -> 'a sample -> unit
+  val sample : t -> 'a gen -> 'a sample (* may raise Not_found *)
+end = struct
+  type fraglist = Fraglist : {
+    gen_id : 'a Typed_id.t;
+    mutable len : int;
+    mutable samples : 'a sample array
+  } -> fraglist
+  module H = Hashtbl.Make (struct type t = int let hash x = x let equal (x : int) (y : int) = (x = y) end)
+  type t = fraglist H.t
+
+  let add tbl (type a) (s : a sample) =
+    let id = s.generator.id in
+    match H.find tbl (Typed_id.to_int id) with
+    | exception Not_found ->
+       H.add tbl (Typed_id.to_int id)
+         (Fraglist { gen_id = id; len = 1; samples = Array.make 8 s })
+    | Fraglist fl ->
+       if fl.len = Array.length fl.samples then begin
+         let bigger = Array.make (fl.len * 2) fl.samples.(0) in
+         Array.blit fl.samples 0 bigger 0 fl.len;
+         fl.samples <- bigger
+       end;
+       match Typed_id.equal_t id fl.gen_id with
+       | Typed_id.Not_Eq -> assert false
+       | Typed_id.Eq ->
+          fl.samples.(fl.len) <- s;
+         fl.len <- fl.len + 1
+
+  let sample tbl (type a) (g : a gen) : a sample =
+    let Fraglist fl = H.find tbl (Typed_id.to_int g.id) in (* may raise Not_found *)
+    match Typed_id.equal_t g.id fl.gen_id with
+    | Typed_id.Not_Eq -> assert false
+    | Typed_id.Eq ->
+       fl.samples.(Random.int fl.len)
+end
+
+
+let rec split_into :
+  type a . Fragment_Pool.t -> a sample -> unit =
+  fun tbl s ->
+  Fragment_Pool.add tbl s;
+  match s.components with
+  | SChoose (ch, t) -> split_into tbl t
+  | SMap (scases, f) -> split_into_gens tbl scases
+  | SPrim _ -> ()
+
+and split_into_gens :
+  type k res . Fragment_Pool.t -> (k, res) sample_tuple -> unit =
+  fun tbl s -> match s with
+  | TNil _ -> ()
+  | TCons (s, ss) -> split_into tbl s; split_into_gens tbl ss
+
+
+
+(*
+let rec recombine :
+  type a . Fragment_Pool.t -> a sample -> a sample =
+  fun tbl s ->
+  if Random.int 100 < 5 then s
+  else if Random.int 100 < 10 then Fragment_Pool.sample tbl s.generator
+  else match s.components with
+  | SChoose (ch, t) -> mk_sample 
+*)
