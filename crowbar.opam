@@ -11,7 +11,6 @@ build-test:
 [[ "jbuilder" "build" "--only-packages" name "--root" "." "-j" jobs "@runtest" ]]
 available: [ ocaml-version >= "4.02" ]
 depends: [
-  "ocamlfind"
   "jbuilder" {build}
   "ocplib-endian"
   "cmdliner"
