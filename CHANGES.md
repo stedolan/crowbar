@@ -1,4 +1,4 @@
-v0.1 (29th December 2016)
+v0.1 (01 February 2018)
 ---------------------
 
 Initial release
