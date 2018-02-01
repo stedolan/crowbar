@@ -1,51 +1,3 @@
-external instrumentation_buffer_size : unit -> int = "caml_instrumentation_buffer_size"
-external gather_instrumentation : bytes -> unit = "caml_gather_instrumentation"
-external reset_instrumentation : bool -> unit = "caml_reset_afl_instrumentation"
-
-let with_instrumentation buf f =
-  reset_instrumentation true;
-  let v =
-    (* Sys.opaque_identity inhibits inlining *)
-    match (Sys.opaque_identity f) () with
-    | x -> Ok x
-    | exception e -> Error e in
-  gather_instrumentation buf;
-  v
-
-external unsafe_get_32 : Bytes.t -> int -> int32 = "%caml_string_get32u"
-external unsafe_get_64 : Bytes.t -> int -> int64 = "%caml_string_get64u"
-external unsafe_set_32 : Bytes.t -> int -> int32 -> unit = "%caml_string_set32u"
-external unsafe_set_64 : Bytes.t -> int -> int64 -> unit = "%caml_string_set64u"
-
-(* This function finds bits set in the bytestring `ibuf`
-   which are not set in the bytestring `already_seen`.
-   For performance, it's a bit nasty *)
-let find_new_bits ibuf already_seen out =
-  let r = ref 0 in
-  assert (Bytes.length ibuf = Bytes.length already_seen);
-  let i = ref 0 in
-  let numwords = Bytes.length ibuf / 8 in
-  while !i < numwords do
-    let seen = unsafe_get_64 already_seen (!i * 8) in
-    let newly_seen = Int64.logor (unsafe_get_64 ibuf (!i * 8)) seen in
-    if seen = newly_seen then
-      (* fast path *)
-      incr i
-    else begin
-      for j = !i * 8 to !i * 8 + 7 do
-        let seen = Char.code (Bytes.get already_seen j) in
-        let newly_seen = Char.code (Bytes.get ibuf j) lor seen in
-        if seen <> newly_seen then begin
-          out.(!r) <- j;
-          incr r
-        end
-      done;
-      unsafe_set_64 already_seen (!i * 8) newly_seen;
-      incr i
-    end
-  done;
-  !r
-
 let mkbuf () =
   let buf = Bytes.make 500 '\000' in
   for i = 0 to Bytes.length buf - 1 do
@@ -56,30 +8,54 @@ let mkbuf () =
 
 open Gen
 
-let fuzz (gen : (unit -> unit) gen) =
+
+type test = Test : string * ('f, unit) gens * 'f -> test
+
+type test_status =
+  | TestPass of int
+  | GenFail of exn * Printexc.raw_backtrace
+  | TestExn : 'a sample * exn * Printexc.raw_backtrace -> test_status
+  | TestFail : 'a sample * unit Printers.printer -> test_status
+
+exception Fail : 'a sample * exn * Printexc.raw_backtrace -> exn
+let fuzz (Test (name, gens, run)) =
+  let gens = delay gens run in
   let () = (* Random.init 123 *) Random.self_init () in
-  let ibuf = Bytes.create (instrumentation_buffer_size ()) in
-  let seen = Bytes.create (instrumentation_buffer_size ()) in
-  let new_hits = Array.make (instrumentation_buffer_size ()) 0 in
+  let ibuf = Instrumentation.create_buffer () in
+  let seen = Instrumentation.create_buffer () in
+  let new_hits = Array.make (Bytes.length (seen :> bytes)) 0 in
   let q = Queue.create () in
   let ntests = ref 0 in
-  let nbugs = ref 0 in
-  Queue.add (0, sample gen (mkbuf ()) 1000) q;
-  while not (Queue.is_empty q) do
-    let depth, tc = Queue.pop q in
-    try
-    for i = 0 to 10 do
-      incr ntests;
-      let tc = mutate tc (Random.int (sample_len tc)) (mkbuf ()) in
-      with_instrumentation ibuf (sample_val tc) |> 
-          (function Ok x -> () | Error e -> raise e);
-      let count = find_new_bits ibuf seen new_hits in
-      (* Printf.fprintf stdout "%d %d %d\n%!" depth count (Queue.length q); *)
-      if count > 0 then Queue.add (depth + 1, tc) q
-    done
-    with e -> begin
-      incr nbugs; if !nbugs = 1 then (Printf.printf "%d\n%!" !ntests; exit 0);
-      Printf.printf "%d\n%!" !ntests; ntests := 0; Queue.clear q; Queue.add (0, sample gen (mkbuf ()) 1000) q; Bytes.fill seen 0 (Bytes.length seen) '\000' 
-    end
-  done
+  let rec mk_sample () =
+    try sample gens (mkbuf ()) with
+    | Bad_test _ -> mk_sample () in
+  let rec mutate_sample s =
+    try mutate s (Random.int (sample_len s)) (mkbuf ()) with
+    | Bad_test _ -> mutate_sample s in
 
+  match
+    while not (Queue.is_empty q) || !ntests < 5000 do
+      if Queue.is_empty q then Queue.add (0, mk_sample ()) q;
+      let depth, tc = Queue.pop q in
+      for i = 0 to 10 do
+        let tc = mutate_sample tc in
+        Instrumentation.with_instrumentation ibuf (fun () ->
+            sample_val tc ())
+        |> (function
+            | Ok x -> incr ntests
+            | Error (Bad_test _) -> ()
+            | Error e -> raise (Fail (tc, e, Printexc.get_raw_backtrace ())));
+        let count = Instrumentation.find_new_bits seen ibuf new_hits in
+        Format.printf "%a %d %d %d\n%!" pp_sample tc depth count (Queue.length q);
+        if count > 0 then Queue.add (depth + 1, tc) q
+      done
+    done
+  with
+  | () ->
+     TestPass !ntests
+  | exception Fail(s, Std_generators.Failed_test p, _) ->
+     TestFail (s, p)
+  | exception Fail(s, e, bt) ->
+     TestExn (s, e, bt)
+  | exception e ->
+     GenFail (e, Printexc.get_raw_backtrace ())

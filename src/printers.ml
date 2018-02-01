@@ -7,6 +7,13 @@ let pp_float ppf f = pp ppf "%f" f
 let pp_bool ppf b = pp ppf "%b" b
 let pp_string ppf s = pp ppf "\"%s\"" (String.escaped s)
 let pp_printer ppf (pv : unit printer) = pv ppf ()
+let pp_exn ppf e = pp ppf "%s" (Printexc.to_string e)
+let pp_exn_bt ppf (e, bt) =
+  pp_exn ppf e;
+  bt
+  |> Printexc.raw_backtrace_to_string
+  |> Str.split (Str.regexp "\n")
+  |> List.iter (pp ppf "@,%s")
 
 let pp_delim ppf = function
   | "[", `Close -> pp ppf "]"

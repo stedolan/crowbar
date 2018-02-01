@@ -130,7 +130,8 @@ val pp_int64 : Int64.t printer
 val pp_float : float printer
 val pp_bool : bool printer
 val pp_string : string printer
-val pp_list : 'a printer -> 'a list printer
+val pp_list : ?delim:string -> ?sep:string ->
+              'a printer -> 'a list printer
 
 (** {1:testing Testing} *)
 

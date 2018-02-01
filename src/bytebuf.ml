@@ -36,6 +36,10 @@ let read_int64 src =
   let off = getbytes src 8 in
   EndianBytes.LittleEndian.get_int64 src.buf off
 
+let read_float src =
+  let off = getbytes src 8 in
+  EndianBytes.LittleEndian.get_double src.buf off
+
 let write_char dst ch =
   let off = getbytes dst 1 in
   Bytes.set dst.buf off ch

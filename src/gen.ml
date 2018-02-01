@@ -7,7 +7,7 @@
   This file contains the definition of generators and samples, basic
   generator combinators, and the algorithms for sampling and
   mutation. Higher-level generator combinators (e.g. lists) live in
-  crowbar.ml, and the main fuzzing loop lives in fuzz.ml.
+  std_generators.ml, and the main fuzzing loop lives in fuzz.ml.
 
 *)
 
@@ -34,7 +34,7 @@ type 'a gen = {
 }
 
 and 'a gen_strategy =
-  | Map : int * ('f, 'a) gens * 'f -> 'a gen_strategy
+  | Map : ('f, 'a) gens * 'f -> 'a gen_strategy
   | Choose of 'a gen array       (* 1 <= length < 256 *)
   | Unlazy of 'a gen Lazy.t
   | Prim of 'a primitive_generator
@@ -48,16 +48,16 @@ and ('func, 'res) gens =
 
 type nonrec +'a list = 'a list = [] | (::) of 'a * 'a list
 
-let rec gens_length :
-  type k res . (k, res) gens -> int =
-  function
-  | [] -> 0
-  | g :: gs -> 1 + gens_length gs
-
-
-
 
 (* Basic combinators *)
+
+let primitive p =
+  { id = Typed_id.fresh ();
+    strategy = Prim p;
+    printer = PrintDefault;
+    small_example_size = 1 }
+
+exception Bad_test of string
 
 let map gens f =
   (* The small_example_size of `map gens f` is the product of the
@@ -73,12 +73,27 @@ let map gens f =
        else
          max_int in
   { id = Typed_id.fresh ();
-    strategy = Map (gens_length gens, gens, f);
+    strategy = Map (gens, f);
     printer = PrintDefault;
     small_example_size = compute_example_size 1 gens }
 
 
 let const k = map [] k
+
+type ('k, 'res) delayed_gens =
+  Delayed : ('k2, unit -> 'res) gens * ('k -> 'k2) -> ('k, 'res) delayed_gens
+let rec delay_gens :
+  type k res . (k, res) gens -> (k, res) delayed_gens = function
+  | [] -> Delayed ([], fun x () -> x)
+  | [g] -> Delayed ([g], fun f x () -> f x)
+  | g :: gs ->
+     let Delayed (gs', tx) = delay_gens gs in
+     Delayed (g :: gs', fun f x -> tx (f x))
+
+let delay gens f =
+  let Delayed (gens', tx) = delay_gens gens in
+  map gens' (tx f)
+
 
 
 let choose gens =
@@ -211,59 +226,30 @@ let mk_sample bytebuf generator components =
 
 
 let rec sample :
-  type a . a gen -> Bytebuf.t -> int -> a sample =
-  fun gen bytebuf size ->
-(*  if bytebuf.pos >= bytebuf.len then
-    raise No_more_bytes
-    match gen.small_examples with
-    | [| |] -> failwith "No small examples for generator!"
-    | sm -> sm.(0)
-  else if size <= 1 then
-    let b = read_byte bytebuf in
-    match gen.small_examples with
-    | [| |] -> failwith "No small examples for generator!"
-    | sm -> sm.(b mod Array.length sm)
-  else *)
-    match gen.strategy with
-    | Map (count, gens, f) ->
-       mk_sample bytebuf gen (SMap (sample_gens gens f bytebuf size count, f))
-    | Choose gens ->
-       let b = Bytebuf.read_byte bytebuf in
-       let value = sample gens.(b mod Array.length gens) bytebuf (size - 1) in
-       (* FIXME: update? *)
-       mk_sample bytebuf gen (SChoose (b, value))
-    | Unlazy gen ->
-       sample (Lazy.force gen) bytebuf size
-    | Prim p ->
-       mk_sample bytebuf gen (SPrim (Bytebuf.mark bytebuf, p))
+  type a . a gen -> Bytebuf.t -> a sample =
+  fun gen bytebuf ->
+  match gen.strategy with
+  | Map (gens, f) ->
+     mk_sample bytebuf gen (SMap (sample_gens gens f bytebuf, f))
+  | Choose gens ->
+     let b = Bytebuf.read_byte bytebuf mod Array.length gens in
+     (* FIXME: update underlying buffer? *)
+     let value = sample gens.(b) bytebuf in
+     mk_sample bytebuf gen (SChoose (b, value))
+  | Unlazy gen ->
+     sample (Lazy.force gen) bytebuf
+  | Prim p ->
+     mk_sample bytebuf gen (SPrim (Bytebuf.mark bytebuf, p))
 
 and sample_gens :
-  type f res . (f, res) gens -> f -> Bytebuf.t -> int -> int -> (f, res) sample_tuple =
-  fun gens f state size count -> match gens with
+  type f res . (f, res) gens -> f -> Bytebuf.t -> (f, res) sample_tuple =
+  fun gens f state -> match gens with
   | [] ->
      TNil f
   | gen :: gens ->
-     let x = sample gen state ((size - 1) / count) in
-     let sample_tuple = sample_gens gens (f x.value) state size count in
+     let x = sample gen state in
+     let sample_tuple = sample_gens gens (f x.value) state in
      TCons (x, sample_tuple)
-
-(*
-let mkbuf () =
-  let buf = Bytes.make 500 '\000' in
-  for i = 0 to Bytes.length buf - 1 do
-    Bytes.set buf i (Char.chr (Random.bits () land 0xff));
-  done;
-  Bytebuf.of_bytes buf
-*)
-
-let mkbuf () =
-  let buf = Bytes.make 500 '\000' in
-  for i = 0 to Bytes.length buf - 1 do
-    Bytes.set buf i (Char.chr (Random.bits () land 0xff));
-    (* Printf.printf "%02x" (Char.code (Bytes.get buf i)); *)
-  done;
-  (* Printf.printf "\n%!"; *)
-  Bytebuf.of_bytes buf
 
 
 let rec mutate :
@@ -273,7 +259,13 @@ let rec mutate :
   | _ when !pos = 0 ->
      (* found the spot to mutate *)
      pos := -s.length;
-     sample s.generator bytebuf s.length
+     sample s.generator bytebuf
+  | SPrim (mark, p) ->
+     (* found the spot to mutate *)
+     (* FIXME *)
+     pos := -s.length;
+     sample s.generator bytebuf
+
   | _ when !pos < 0 || !pos > s.length ->
      (* this subtree remains untouched *)
      pos := !pos - s.length;
@@ -283,9 +275,6 @@ let rec mutate :
      mk_sample bytebuf s.generator (SChoose (ch, mutate t pos bytebuf))
   | SMap (scases, f) ->
      mk_sample bytebuf s.generator (SMap (mutate_gens scases f pos bytebuf, f))
-  | SPrim (mark, p) ->
-     (* FIXME *)
-     assert false
 
 and mutate_gens :
   type f res . (f, res) sample_tuple -> f -> int ref -> Bytebuf.t -> (f, res) sample_tuple =
@@ -323,17 +312,21 @@ and serialize_tuple_into :
   | TCons (s, rest) -> serialize_into s b; serialize_tuple_into rest b
 
 
-
-
-let rec print : type a . a sample printer = fun ppf s ->
+let rec pp_sample : type a . a sample printer = fun ppf s ->
   let open Printers in
   match s.generator.printer with
   | PrintDefault ->
      begin match s.components with
+     | SMap (TNil _, _) ->
+        pp ppf "_"
+     | SMap (TCons (s, TNil _), _) ->
+        (* This gets rid of many square brackets.
+           I think it's easier to read this way?  *)
+        pp_sample ppf s
      | SMap (comps, _) ->
-        pp_list pp_printer ppf (print_tuple comps)
+        pp_list pp_printer ppf (pp_tuple comps)
      | SChoose (k, s) ->
-        pp ppf "#%d %a" k print s
+        pp ppf "#%d %a" k pp_sample s
      | SPrim _ ->
         pp ppf "_"
      end
@@ -342,18 +335,19 @@ let rec print : type a . a sample printer = fun ppf s ->
   | PrintComponents pcomps ->
      let comps =
        match s.components with
-       | SMap (comps, _) -> print_tuple comps
-       | SChoose (_, s) -> [fun ppf () -> print ppf s]
+       | SMap (comps, _) -> pp_tuple comps
+       | SChoose (_, s) -> [fun ppf () -> pp_sample ppf s]
        | SPrim _ -> [] in
      pcomps comps ppf s.value
 
-and print_tuple : type k res . (k, res) sample_tuple -> unit printer list = function
+and pp_tuple : type k res . (k, res) sample_tuple -> unit printer list = function
   | TNil _ -> []
-  | TCons (s, rest) -> (fun ppf () -> print ppf s) :: print_tuple rest
+  | TCons (s, rest) -> (fun ppf () -> pp_sample ppf s) :: pp_tuple rest
   
 
 
 
+(* experimental hackery below... *)
 
 
 module Fragment_Pool : sig
