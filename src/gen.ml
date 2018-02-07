@@ -259,6 +259,8 @@ and sample_gens :
      let sample_tuple = sample_gens gens (f x.value) state in
      TCons (x, sample_tuple)
 
+let sample gen bb =
+  try sample gen bb with Bytebuf.Buffer_exhausted -> raise (Bad_test "Byte buffer exhausted")
 
 let rec mutate :
   type a . a sample -> int ref -> Bytebuf.t -> a sample =
@@ -297,7 +299,7 @@ and mutate_gens :
 let mutate sample pos bytebuf =
   if pos < 0 || pos > sample.length then
     raise (Invalid_argument "Gen.mutate: invalid position");
-  mutate sample (ref pos) bytebuf
+  try mutate sample (ref pos) bytebuf with Bytebuf.Buffer_exhausted -> raise (Bad_test "Byte buffer exhausted")
 
 
 let rec serialize_into :

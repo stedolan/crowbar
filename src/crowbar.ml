@@ -32,7 +32,7 @@ let () =
         let ppf = Format.std_formatter in
         let say ?(clear=false) stat =
           pp ppf "%s: %s\n%!" name stat in
-        match Fuzz.corpus_fuzz test with
+        match Fuzz.pqcorpus_fuzz test with
         | TestPass n -> pp ppf "%s: PASS (%d tests)@.%!" name n
         | GenFail (nt, e, bt) ->
            say "FAIL";

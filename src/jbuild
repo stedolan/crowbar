@@ -6,4 +6,4 @@
   (c_names (instrumentation_stubs))
   (ocamlopt_flags (:standard -afl-inst-ratio 0))
   (modules (:standard \ (cb2)))
-  (libraries (cmdliner ocplib-endian afl-persistent str))))
+  (libraries (cmdliner ocplib-endian afl-persistent str psq))))

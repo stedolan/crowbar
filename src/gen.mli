@@ -62,3 +62,14 @@ val pp_sample : 'a sample Printers.printer
 val mutate : 'a sample -> int -> Bytebuf.t -> 'a sample
 
 val serialize_into : 'a sample -> Bytebuf.t -> unit
+
+
+
+module Fragment_Pool : sig
+  type t
+  val create : unit -> t
+  val add : t -> 'a sample -> unit
+  val sample : t -> 'a gen -> 'a sample (* may raise Not_found *)
+end
+
+val splice : Fragment_Pool.t -> 'a sample -> 'a sample
