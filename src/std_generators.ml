@@ -80,8 +80,21 @@ let option g =
 let mk_list_gens g =
   let rec list = lazy (choose [
     const [];
-    unlazy list1])
-  and list1 = lazy (map [g; unlazy list] (fun x xs -> x :: xs)) in
+    unlazy list1]
+    |> with_component_printer (fun comps ppf xs ->
+      match xs, comps with
+      | [], _ -> ()
+      | _, [pc] -> pc ppf ()
+      | _ -> assert false))
+  and list1 = lazy (
+    map [g; unlazy list] (fun x xs -> x :: xs)
+    |> with_component_printer (fun comps ppf xs ->
+      match xs, comps with
+      | [x], [px; _] ->
+         px ppf ()
+      | x :: xs, [px; pxs] ->
+         pp ppf "%a;@ %a" pp_printer px pp_printer pxs
+      | _ -> assert false)) in
   unlazy list, unlazy list1
 
 let list g = mk_list_gens g |> fst |> with_component_printer (fun comps ppf list ->
