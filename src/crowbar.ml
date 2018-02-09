@@ -32,19 +32,22 @@ let () =
         let ppf = Format.std_formatter in
         let say ?(clear=false) stat =
           pp ppf "%s: %s\n%!" name stat in
-        match Fuzz.fuzz test with
+        match Fuzz.corpus_fuzz test with
         | TestPass n -> pp ppf "%s: PASS (%d tests)@.%!" name n
-        | GenFail (e, bt) ->
+        | GenFail (nt, e, bt) ->
            say "FAIL";
-           pp ppf "The testcase generator threw an exception:@.@[<v 4>@,%a@,@]@.%!"
+           pp ppf "%d The testcase generator threw an exception:@.@[<v 4>@,%a@,@]@.%!"
+             nt
              pp_exn_bt (e, bt)
-        | TestExn (s, e, bt) ->
+        | TestExn (nt, s, e, bt) ->
            say "FAIL";
-           pp ppf "When given the input:@.@[<v 4>@,%a@,@]@.the test threw an exception:@.@[<v 4>@,%a@,@]@.%!"
+           pp ppf "%d When given the input:@.@[<v 4>@,%a@,@]@.the test threw an exception:@.@[<v 4>@,%a@,@]@.%!"
+             nt
              pp_sample s
              pp_exn_bt (e, bt)
-        | TestFail (s, pv) ->
+        | TestFail (nt, s, pv) ->
            say "FAIL";
-           pp ppf "When given the input:@.@[<v 4>@,%a@,@]@.the test failed:@.@[<v 4>@,%a@,@]@.%!"
+           pp ppf "%d When given the input:@.@[<v 4>@,%a@,@]@.the test failed:@.@[<v 4>@,%a@,@]@.%!"
+             nt
              pp_sample s
              pp_printer pv))

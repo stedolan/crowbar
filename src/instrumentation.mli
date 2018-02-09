@@ -1,5 +1,7 @@
 type buf = private bytes
+val buffer_size : int
 val create_buffer : unit -> buf
+val copy_buffer : buf -> buf
 
 (* [with_instrumentation f buf] runs f, collecting instrumentation in buf *)
 val with_instrumentation : buf -> (unit -> 'a) -> ('a, exn) result

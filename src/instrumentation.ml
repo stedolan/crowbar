@@ -1,9 +1,14 @@
 external instrumentation_buffer_size : unit -> int = "caml_instrumentation_buffer_size"
 
+let buffer_size = instrumentation_buffer_size ()
+
 type buf = bytes
 
 let create_buffer () =
   Bytes.make (instrumentation_buffer_size ()) '\000'
+
+let copy_buffer b =
+  Bytes.copy b
 
 external gather_instrumentation : bytes -> unit = "caml_gather_instrumentation"
 external reset_instrumentation : bool -> unit = "caml_reset_afl_instrumentation"
