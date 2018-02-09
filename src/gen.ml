@@ -11,12 +11,10 @@
 
 *)
 
-type 'a printer = 'a Printers.printer
-
 type 'a print_style =
   | PrintDefault
-  | PrintValue of 'a printer
-  | PrintComponents of (unit printer list -> 'a printer)
+  | PrintValue of 'a Printers.printer
+  | PrintComponents of (unit Printers.printer list -> 'a Printers.printer)
 
 type 'a primitive_generator = Bytebuf.t -> 'a
 
@@ -31,6 +29,9 @@ type 'a gen = {
 
   (* How large is the smallest value that this generator can make? *)
   small_example_size : int;
+
+  (* Are all values this generator makes the same size? *)
+  unique_size : int option;
 }
 
 and 'a gen_strategy =
@@ -51,31 +52,30 @@ type nonrec +'a list = 'a list = [] | (::) of 'a * 'a list
 
 (* Basic combinators *)
 
-let primitive p =
+let primitive ?size p =
   { id = Typed_id.fresh ();
     strategy = Prim p;
     printer = PrintDefault;
-    small_example_size = 1 }
+    small_example_size = (match size with None -> 1 | Some n -> n);
+    unique_size = size }
 
 exception Bad_test of string
 
 let map gens f =
-  (* The small_example_size of `map gens f` is the product of the
-     sizes of gens, plus 1, with a check to avoid overflow *)
-  let max_small_size = 1000 in
-  let rec compute_example_size :
-    type k res . int -> (k, res) gens -> int =
-    fun acc gens -> match gens with
-    | [] -> acc + 1
-    | { small_example_size = s; _ } :: gens ->
-       if acc < max_small_size && s < max_small_size then
-         compute_example_size (acc * s) gens
-       else
-         max_int in
+  (* The small_example_size of `map gens f` is the sum of the
+     sizes of gens, plus 1 *)
+  let rec compute_sizes :
+    type k res . int -> int option -> (k, res) gens -> int * int option =
+    fun small uniq gens -> match gens with
+    | [] -> small, uniq
+    | { small_example_size = s; unique_size = u } :: gens ->
+       compute_sizes (small + s) (match uniq, u with Some u, Some u' -> Some (u + u') | _ -> None) gens in
+  let small_example_size, unique_size = compute_sizes 1 (Some 0) gens in
   { id = Typed_id.fresh ();
     strategy = Map (gens, f);
     printer = PrintDefault;
-    small_example_size = compute_example_size 1 gens }
+    small_example_size;
+    unique_size }
 
 
 let const k = map [] k
@@ -111,15 +111,22 @@ let choose gens =
        { id = Typed_id.fresh ();
          strategy = Choose [| |];
          printer = PrintDefault;
-         small_example_size = max_int }
+         small_example_size = max_int;
+         unique_size = None }
     | [| g |] ->
        g  (* hobson's optimisation *)
     | arr ->
        assert (Array.length arr <= max_choose);
+       let unique_size =
+         Array.fold_left 
+           (fun u g -> match u, g.unique_size with
+           | Some u, Some u' when u = u' -> Some u
+           | _ -> None) arr.(0).unique_size arr in
        { id = Typed_id.fresh ();
          strategy = Choose arr;
          printer = PrintDefault;
-         small_example_size = arr.(0).small_example_size } in
+         small_example_size = arr.(0).small_example_size;
+         unique_size } in
 
   (* The length of `gens` is arbitrary, but the Choose strategy only
      allows up to 256 generators. If there are more than 256, we need
@@ -153,7 +160,8 @@ let unlazy gen =
      { id = Typed_id.fresh ();    (* FIXME should this be fresh? *)
        strategy = Unlazy gen;
        printer = PrintDefault;
-       small_example_size = max_int }
+       small_example_size = max_int;
+       unique_size = None }
 
 
 let with_printer pv gen =
@@ -256,20 +264,20 @@ let rec mutate :
   type a . a sample -> int ref -> Bytebuf.t -> a sample =
   fun s pos bytebuf ->
   match s.components with
-  | _ when !pos = 0 ->
-     (* found the spot to mutate *)
-     pos := -s.length;
-     sample s.generator bytebuf
-  | SPrim (mark, p) ->
-     (* found the spot to mutate *)
-     (* FIXME *)
-     pos := -s.length;
-     sample s.generator bytebuf
-
   | _ when !pos < 0 || !pos > s.length ->
      (* this subtree remains untouched *)
      pos := !pos - s.length;
      s
+  | SPrim (mark, p) ->
+     let newbuf = Bytes.make (s.length + 20) '\000' in
+     Bytebuf.copy_since_mark (Bytebuf.of_bytes newbuf) mark s.length;
+     Bytes.set newbuf !pos ((Char.code (Bytes.get newbuf !pos) + Random.int 255) land 0xff |> Char.chr);
+     pos := !pos - s.length;
+     sample s.generator (Bytebuf.of_bytes newbuf)
+  | SChoose _ when !pos = 0 ->
+     (* replace subtree *)
+     pos := -s.length;
+     sample s.generator bytebuf
   | SChoose (ch, t) ->
      decr pos;  (* skip tag byte *)
      mk_sample bytebuf s.generator (SChoose (ch, mutate t pos bytebuf))
@@ -312,7 +320,7 @@ and serialize_tuple_into :
   | TCons (s, rest) -> serialize_into s b; serialize_tuple_into rest b
 
 
-let rec pp_sample : type a . a sample printer = fun ppf s ->
+let rec pp_sample : type a . a sample Printers.printer = fun ppf s ->
   let open Printers in
   match s.generator.printer with
   | PrintDefault ->
@@ -340,7 +348,7 @@ let rec pp_sample : type a . a sample printer = fun ppf s ->
        | SPrim _ -> [] in
      pcomps comps ppf s.value
 
-and pp_tuple : type k res . (k, res) sample_tuple -> unit printer list = function
+and pp_tuple : type k res . (k, res) sample_tuple -> unit Printers.printer list = function
   | TNil _ -> []
   | TCons (s, rest) -> (fun ppf () -> pp_sample ppf s) :: pp_tuple rest
   
@@ -352,6 +360,7 @@ and pp_tuple : type k res . (k, res) sample_tuple -> unit printer list = functio
 
 module Fragment_Pool : sig
   type t
+  val create : unit -> t
   val add : t -> 'a sample -> unit
   val sample : t -> 'a gen -> 'a sample (* may raise Not_found *)
 end = struct
@@ -362,6 +371,7 @@ end = struct
   } -> fraglist
   module H = Hashtbl.Make (struct type t = int let hash x = x let equal (x : int) (y : int) = (x = y) end)
   type t = fraglist H.t
+  let create () = H.create 20
 
   let add tbl (type a) (s : a sample) =
     let id = s.generator.id in
@@ -404,6 +414,38 @@ and split_into_gens :
   fun tbl s -> match s with
   | TNil _ -> ()
   | TCons (s, ss) -> split_into tbl s; split_into_gens tbl ss
+
+
+let rec splice :
+  type a . Fragment_Pool.t -> a sample -> int ref -> a sample =
+  fun tbl s pos ->
+  match s.components with
+  | _ when !pos < 0 || !pos > s.length ->
+     (* this subtree remains untouched *)
+     pos := !pos - s.length;
+     s
+  | SMap (scases, f) ->
+     (* FIXME of_bytes "" *)
+     mk_sample (Bytebuf.of_bytes "") s.generator (SMap (splice_gens tbl scases f pos, f))
+  | _ ->
+     try
+       Fragment_Pool.sample tbl s.generator
+     with Not_found -> s
+
+
+and splice_gens :
+  type f res . Fragment_Pool.t -> (f, res) sample_tuple -> f -> int ref -> (f, res) sample_tuple =
+  fun tbl scases f pos -> match scases with
+  | TNil _ ->
+     TNil f
+  | TCons (subcase, sample_tuple) ->
+     let subcase' = splice tbl subcase pos in
+     let sample_tuple' = splice_gens tbl sample_tuple (f subcase'.value) pos in
+     TCons (subcase', sample_tuple')
+
+let splice tbl sample =
+  let pos = ref (Random.int sample.length) in
+  splice tbl sample pos
 
 
 

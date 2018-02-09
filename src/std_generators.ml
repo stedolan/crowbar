@@ -2,11 +2,11 @@ open Printers
 open Gen
 
 let bool =
-  primitive Bytebuf.read_bool
+  primitive ~size:1 Bytebuf.read_bool
   |> with_printer pp_bool
 
 let uint8 =
-  primitive Bytebuf.read_byte
+  primitive ~size:1 Bytebuf.read_byte
   |> with_printer pp_int
 
 let int8 =
@@ -14,11 +14,11 @@ let int8 =
   |> with_printer pp_int
 
 let int32 =
-  primitive Bytebuf.read_int32
+  primitive ~size:4 Bytebuf.read_int32
   |> with_printer pp_int32
 
 let int64 =
-  primitive Bytebuf.read_int64
+  primitive ~size:8 Bytebuf.read_int64
   |> with_printer pp_int64
 
 let int =
@@ -29,7 +29,7 @@ let int =
   |> with_printer pp_int
 
 let float =
-  primitive Bytebuf.read_float
+  primitive ~size:8 Bytebuf.read_float
   |> with_printer pp_float
 
 (* maybe print as a hexdump? *)
