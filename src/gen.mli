@@ -32,7 +32,7 @@ val delay : ('f, 'a) gens -> 'f -> (unit -> 'a) gen
 
 
 type 'a primitive_generator = Bytebuf.t -> 'a
-val primitive : 'a primitive_generator -> 'a gen
+val primitive : ?size:int -> 'a primitive_generator -> 'a gen
 
 (* there are two ways to customise printing of samples:
      - [with_printer p]
