@@ -505,16 +505,20 @@ let run acc s =
   let res = Instrumentation.with_instrumentation acc.ibuf (Gen.sample_val s) in
   acc.total_tests <- acc.total_tests + 1;
 
+  let newbit = ref false in
   for i = 0 to Instrumentation.buffer_size - 1 do
     if Bytes.unsafe_get (acc.ibuf :> bytes) i <> '\000' then begin
       let c = Array.unsafe_get acc.counts i in
       if c = 0 then begin
         Printf.printf "new bit: %04x\n%!" i;
-        acc.nbits <- acc.nbits + 1;
+        newbit := true;
       end;
       Array.unsafe_set acc.counts i (c + 1);
     end
   done;
+  
+  if !newbit then acc.nbits <- acc.nbits + 1;
+
 
   let rarest_bit = find_rarest_bit acc.counts acc.ibuf in
 
