@@ -16,6 +16,8 @@ depends: [
   "ocplib-endian"
   "cmdliner"
   "afl-persistent" {>= "1.1"}
+  "psq"
+  "yojson"
   "calendar" {test}
   "xmldiff" {test}
   "fpath" {test}

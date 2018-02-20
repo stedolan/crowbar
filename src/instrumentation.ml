@@ -56,3 +56,117 @@ let find_new_bits ~old_bits ~new_bits ~out =
     end
   done;
   !r
+
+type log_entry = Entry of {
+  ntests : int;
+  nbits : int;
+  new_bits : int list;
+  status : (string * Yojson.Basic.json) list;
+  (* FIXME: add timings *)
+}
+
+let print_entry (Entry { ntests; nbits; new_bits; status }) =
+  Printf.printf "%6d %4d" ntests nbits;
+  status |> List.iter (fun (k, v) ->
+    match v with
+    | `Bool true -> Printf.printf "%s: t" k
+    | `Bool false -> Printf.printf "%s: f" k
+    | `Float f -> Printf.printf "%s:%6.2f" k f
+    | `Int i -> Printf.printf "%s:%5d" k i
+    | `Null -> ()
+    | `String s -> Printf.printf "%s: %10s" k s
+    | j -> Printf.printf "%s: %s" k (Yojson.Basic.to_string j));
+  begin match new_bits with
+  | [] -> ()
+  | [b] -> Printf.printf " [%04x]" b
+  | b :: bs ->
+     Printf.printf " [%04x" b;
+     bs |> List.iter (Printf.printf " %04x");
+     Printf.printf "]"
+  end;
+  Printf.printf "\n%!"
+
+type log = {
+  debug : bool;
+  params : (string * Yojson.Basic.json) list;
+  mutable entries : log_entry list;
+}
+
+type loginfo = (string * Yojson.Basic.json) list
+
+type accumulator = {
+  (* temporary buffer, reused by every call to run *)
+  ibuf : buf;
+
+  (* counts.(i) is the number of times bit i has occurred *)
+  counts : int array;
+  (* nbits is the number of nonzero entries of counts *)
+  mutable nbits : int;
+  (* ntests is the number of tests that have been run *)
+  mutable ntests : int;
+
+  log : log;
+}
+
+let create_accumulator ?(debug_log=false) ?(params=[]) () =
+  { ibuf = create_buffer ();
+    counts = Array.make buffer_size 0;
+    nbits = 0;
+    ntests = 0;
+    log = { debug = debug_log ; params; entries = [] } }
+
+let log_to_json { log = { entries; params; _ }; _ } : Yojson.Basic.json =
+  entries
+  |> List.rev
+  |> List.map (fun (Entry { ntests; nbits; new_bits; status }) ->
+     `Assoc ([
+        "tests", `Int ntests;
+        "bits", `Int nbits;
+        "new_bits", `List (List.map (fun i ->
+                        `String (Printf.sprintf "%04x" i)) new_bits)]
+        @ status))
+  |> fun e -> `Assoc (params @ ["log", `List e])
+
+type 'a run_result = {
+  result : ('a, exn) result;
+  rarest_bit : int;
+  rarest_count : int;
+  new_bits : int list;
+}
+
+
+let run ?status acc f =
+  let result = with_instrumentation acc.ibuf f in
+  let counts = acc.counts in
+  let new_bits = ref [] in
+  let rarest_bit = ref 0 in
+  let rarest_count = ref max_int in
+  assert (Bytes.length acc.ibuf = buffer_size);
+  assert (Array.length counts = buffer_size);
+  for i = 0 to buffer_size - 1 do
+    if Bytes.unsafe_get acc.ibuf i <> '\000' then begin
+      let c = Array.unsafe_get counts i in
+      if c < !rarest_count then begin
+        rarest_count := c;
+        rarest_bit := i;
+      end;
+      if c = 0 then begin
+        acc.nbits <- acc.nbits + 1;
+        new_bits := i :: !new_bits;
+      end;
+      Array.unsafe_set counts i (c + 1);
+    end
+  done;
+  new_bits := List.rev !new_bits;
+  acc.ntests <- acc.ntests + 1;
+  if acc.log.debug || !new_bits <> [] then begin
+    let status = match status with Some f -> f () | _ -> [] in
+    let entry = Entry { ntests = acc.ntests; nbits = acc.nbits;
+                        new_bits = !new_bits; status } in
+    if !new_bits <> [] then acc.log.entries <- entry :: acc.log.entries;
+    print_entry entry;
+  end;
+  { result;
+    rarest_bit = !rarest_bit;
+    rarest_count = !rarest_count;
+    new_bits = !new_bits }

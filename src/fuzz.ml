@@ -229,24 +229,20 @@ let pqcorpus_fuzz (Test (name, gens, run)) =
 let quickcheck (Test (name, gens, run)) =
   Random.self_init ();
   let gens = delay gens run in
-  let ibuf = Instrumentation.create_buffer () in
-  let ntests = ref 0 in
-  let nbits = ref 0 in
+  let acc = Instrumentation.create_accumulator
+          ~debug_log:false ~params:["engine", `String "quickcheck"] () in
   let rec go () =
     let s = Corpus.mk_sample gens in
-    match Instrumentation.with_instrumentation ibuf (sample_val s) with
+    match (Instrumentation.run acc (sample_val s)).result with
+    | Ok () when acc.ntests >= 100000 ->
+       Yojson.Basic.to_channel (open_out "crowbar-log.json") (Instrumentation.log_to_json acc);
+       TestPass acc.ntests
     | Error (Bad_test _) -> go ()
     | Error _ (*(Std_generators.Failed_test p) ->
        TestFail (!ntests, s, p)
     | Error (e) ->
        TestExn (!ntests, s, e, Printexc.get_raw_backtrace ())*)
     | Ok () ->
-       incr ntests;
-       let new_count = count_bits ibuf - !nbits in
-       if new_count > 0 then begin
-         nbits := !nbits + new_count;
-         Printf.printf "%5d %4d\n%!" !ntests !nbits
-       end;
        go () in
   go ()
 
