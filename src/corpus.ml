@@ -384,8 +384,6 @@ type psq_entry = {
   rarest_bit : int;
   occurrences : int;
   ntests : int;
-  avg_interest_generated : float;
-
   amount_fuzzed : int;
 
   samples : (unit -> unit) Gen.sample Queue.t;
@@ -393,8 +391,6 @@ type psq_entry = {
 
 let interest e =
   (1./. (float_of_int (e.occurrences + e.amount_fuzzed) /. float_of_int e.ntests))
-(*    *.
-  e.avg_interest_generated *)
 
 module Psq = Psq.Make
   (struct type t = int let compare = compare end)
@@ -432,36 +428,28 @@ let psq_take acc q =
      Some (bit, s)
    end
 
-let psq_offer ?interest_generated acc q bit s =
+let psq_offer acc q bit s =
   let e = Psq.find bit q.entries in
   let e_interest = 1./. (float_of_int acc.counts.(bit) /. float_of_int acc.total_tests) in
   let num_samples = match e with None -> 0 | Some e -> Queue.length e.samples in
   let s_interest = e_interest /. (1. +. float_of_int num_samples) in
   if s_interest > 1. then begin
-    let avg_interest_generated =
-      match e, interest_generated with
-      | None, None -> 1000.  (* Assume a high interest for things not yet fuzzed much *)
-      | None, Some i -> i
-      | Some e, None -> e.avg_interest_generated
-      | Some e, Some i ->
-         e.avg_interest_generated *. 0.8 +. i *. 0.2 in
     let e = match e with
       | None -> { rarest_bit = bit;
                   occurrences = acc.counts.(bit);
                   ntests = acc.total_tests;
                   samples = Queue.create ();
-                  avg_interest_generated;
                   amount_fuzzed = 0 }
       | Some e -> 
          q.total_interest <- q.total_interest -. interest e;
-         { e with ntests = acc.total_tests; occurrences = acc.counts.(bit); avg_interest_generated } in
+         { e with ntests = acc.total_tests; occurrences = acc.counts.(bit) } in
     (* FIXME: randomise *)
     Queue.add s e.samples;
     q.entries <- Psq.add bit e q.entries;
     q.total_interest <- q.total_interest +. interest e;
     q.count <- q.count + 1;
-  end;
-  e_interest
+    true
+  end else false
 
 let psq_mark_fuzz q bit =
   match Psq.find bit q.entries with
@@ -519,7 +507,7 @@ let pqcycle acc q gen =
   | Some (bit, s) ->
      (* if Random.int 1 = 0 then Format.printf "%a@." Gen.pp_sample s; *)
      let interest_generated = run_case (mutate_sample s) in
-     let f = psq_offer ~interest_generated acc q bit s in
+     let f = psq_offer acc q bit s in
      psq_mark_fuzz q bit;
      f
 
