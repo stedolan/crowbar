@@ -186,43 +186,43 @@ let corpus_fuzz (Test (name, gens, run)) =
 let qcorpus_fuzz (Test (name, gens, run)) =
   Random.self_init ();
   let gens = delay gens run in
-  let acc = Corpus.create_accumulator () in
+  let acc = Instrumentation.create_accumulator () in
   let q = Corpus.create_queue () in
   match
   while true do
     Corpus.qcycle acc q gens;
     if Random.int 100 = 0 then
-      Printf.printf "%d %d %d (forgot %d)\n%!" acc.total_tests (Queue.length q.entries) acc.nbits (acc.nbits - Corpus.qnbits q);
+      Printf.printf "%d %d %d (forgot %d)\n%!" acc.ntests (Queue.length q.entries) acc.nbits (acc.nbits - Corpus.qnbits q);
   done
   with
   | () ->
-     TestPass acc.total_tests
+     TestPass acc.ntests
   | exception Fail(s, Std_generators.Failed_test p, _) ->
-     TestFail (acc.total_tests, s, p)
+     TestFail (acc.ntests, s, p)
   | exception Fail(s, e, bt) ->
-     TestExn (acc.total_tests, s, e, bt)
+     TestExn (acc.ntests, s, e, bt)
   | exception e ->
-     GenFail (acc.total_tests, e, Printexc.get_raw_backtrace ())
+     GenFail (acc.ntests, e, Printexc.get_raw_backtrace ())
 
 let pqcorpus_fuzz (Test (name, gens, run)) =
   Random.self_init ();
   let gens = delay gens run in
-  let acc = Corpus.create_accumulator () in
+  let acc = Instrumentation.create_accumulator () in
   let q = Corpus.create_pqueue () in
   match
   while true do
     Corpus.pqcycle acc q gens;
-      Printf.printf "%d %d %d\n%!" acc.total_tests q.count acc.nbits;
+      Printf.printf "%d %d %d\n%!" acc.ntests q.count acc.nbits;
   done
   with
   | () ->
-     TestPass acc.total_tests
+     TestPass acc.ntests
   | exception Fail(s, Std_generators.Failed_test p, _) ->
-     TestFail (acc.total_tests, s, p)
+     TestFail (acc.ntests, s, p)
   | exception Fail(s, e, bt) ->
-     TestExn (acc.total_tests, s, e, bt)
+     TestExn (acc.ntests, s, e, bt)
   | exception e ->
-     GenFail (acc.total_tests, e, Printexc.get_raw_backtrace ())
+     GenFail (acc.ntests, e, Printexc.get_raw_backtrace ())
 
 
 

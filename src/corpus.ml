@@ -213,47 +213,13 @@ type entry = {
 }
 
 
-type accumulator = {
-  (* temporary buffer, reused *)
-  ibuf : Instrumentation.buf;
-
-  (* counts.(i) is the number of times bit i has occurred *)
-  counts : int array;
-  (* nbits is the number of nonzero entries of counts *)
-  mutable nbits : int;
-  (* total_tests is the number of tests that have been run *)
-  mutable total_tests : int;
-}
-
-let create_accumulator () =
-  { ibuf = Instrumentation.create_buffer ();
-    counts = Array.make Instrumentation.buffer_size 0;
-    nbits = 0;
-    total_tests = 0 }
-
-
 let run acc s =
-  let res = Instrumentation.with_instrumentation acc.ibuf (Gen.sample_val s) in
-  acc.total_tests <- acc.total_tests + 1;
+  let res = Instrumentation.run acc (Gen.sample_val s) in
 
-  for i = 0 to Instrumentation.buffer_size - 1 do
-    if Bytes.unsafe_get (acc.ibuf :> bytes) i <> '\000' then begin
-      let c = Array.unsafe_get acc.counts i in
-      if c = 0 then begin
-        Printf.printf "new bit: %04x\n%!" i;
-        acc.nbits <- acc.nbits + 1;
-      end;
-      Array.unsafe_set acc.counts i (c + 1);
-    end
-  done;
+  res.result, { sample = s; rarest_bit = res.rarest_bit; bit_occurrences = res.rarest_count; ntests = acc.ntests; instrumentation = Instrumentation.copy_buffer acc.ibuf }
 
-  let rarest_bit = find_rarest_bit acc.counts acc.ibuf in
-  let bit_occurrences = acc.counts.(rarest_bit) in
-
-  res, { sample = s; rarest_bit; bit_occurrences; ntests = acc.total_tests; instrumentation = Instrumentation.copy_buffer acc.ibuf }
-
-let update_stats acc e =
-  { e with bit_occurrences = acc.counts.(e.rarest_bit); ntests = acc.total_tests }
+let update_stats (acc : Instrumentation.accumulator) e =
+  { e with bit_occurrences = acc.counts.(e.rarest_bit); ntests = acc.ntests }
   
 
 
@@ -364,7 +330,7 @@ let qcycle acc q gen =
     Printf.printf "%04x(%2d) %5d/%6d ~ %5d/%6d - %.2f (%d)\n"
       e.rarest_bit q.rarity_count.(e.rarest_bit)
       e.bit_occurrences e.ntests
-      acc.counts.(e.rarest_bit) acc.total_tests
+      acc.counts.(e.rarest_bit) acc.ntests
       fcount count;
     for i = 1 to 1 + count do
       run_case (mutate_sample e.sample)
@@ -404,6 +370,7 @@ type psq_corpus = {
 
 let create_pqueue () = { entries = Psq.empty; count = 0; total_interest = 0. }
 
+open Instrumentation
 let psq_take acc q =
   match Psq.pop q.entries with
   | None ->
@@ -416,12 +383,12 @@ let psq_take acc q =
      Printf.printf "%04x(%2d) %5d/%6d ~ %5d/%6d - %.2f > %.2f %d\n"
        e.rarest_bit (Queue.length e.samples)
        e.occurrences e.ntests
-       acc.counts.(e.rarest_bit) acc.total_tests
+       acc.counts.(e.rarest_bit) acc.ntests
        (interest e) (match Psq.min entries with None -> 0. | Some (bit, e') -> interest e') e.amount_fuzzed;
      if Queue.is_empty e.samples then
        q.entries <- entries
      else begin
-       let e = { e with ntests = acc.total_tests; occurrences = acc.counts.(bit) } in
+       let e = { e with ntests = acc.ntests; occurrences = acc.counts.(bit) } in
        q.total_interest <- q.total_interest +. interest e;
        q.entries <- Psq.add bit e entries;
      end;
@@ -430,19 +397,19 @@ let psq_take acc q =
 
 let psq_offer acc q bit s =
   let e = Psq.find bit q.entries in
-  let e_interest = 1./. (float_of_int acc.counts.(bit) /. float_of_int acc.total_tests) in
+  let e_interest = 1./. (float_of_int acc.counts.(bit) /. float_of_int acc.ntests) in
   let num_samples = match e with None -> 0 | Some e -> Queue.length e.samples in
   let s_interest = e_interest /. (1. +. float_of_int num_samples) in
   if s_interest > 1. then begin
     let e = match e with
       | None -> { rarest_bit = bit;
                   occurrences = acc.counts.(bit);
-                  ntests = acc.total_tests;
+                  ntests = acc.ntests;
                   samples = Queue.create ();
                   amount_fuzzed = 0 }
       | Some e -> 
          q.total_interest <- q.total_interest -. interest e;
-         { e with ntests = acc.total_tests; occurrences = acc.counts.(bit) } in
+         { e with ntests = acc.ntests; occurrences = acc.counts.(bit) } in
     (* FIXME: randomise *)
     Queue.add s e.samples;
     q.entries <- Psq.add bit e q.entries;
@@ -468,36 +435,12 @@ let psq_validate q =
   (* assert (abs_float !total_interest < 1e-3) *)
   
 
-let run acc s =
-  let res = Instrumentation.with_instrumentation acc.ibuf (Gen.sample_val s) in
-  acc.total_tests <- acc.total_tests + 1;
-
-  let newbit = ref false in
-  for i = 0 to Instrumentation.buffer_size - 1 do
-    if Bytes.unsafe_get (acc.ibuf :> bytes) i <> '\000' then begin
-      let c = Array.unsafe_get acc.counts i in
-      if c = 0 then begin
-        Printf.printf "new bit: %04x\n%!" i;
-        newbit := true;
-      end;
-      Array.unsafe_set acc.counts i (c + 1);
-    end
-  done;
-  
-  if !newbit then acc.nbits <- acc.nbits + 1;
-
-
-  let rarest_bit = find_rarest_bit acc.counts acc.ibuf in
-
-  res, rarest_bit
-
-
 let pqcycle acc q gen =
   psq_validate q;
   let run_case s =
-    let res, rarest_bit = run acc s in
-    let r = psq_offer acc q rarest_bit s in
-    match res with
+    let res = run acc (Gen.sample_val s) in
+    let r = psq_offer acc q res.rarest_bit s in
+    match res.result with
     | Ok ()
     | Error (Gen.Bad_test _) -> r
     | Error e -> raise (Fail (s, e, Printexc.get_raw_backtrace ())) in
