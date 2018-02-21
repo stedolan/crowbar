@@ -74,7 +74,7 @@ let rec mutate_sample s =
   match mutate s (Random.int (sample_len s)) (mkbuf ()) with
   | exception Bad_test _ -> mutate_sample s
   | s' ->
-     if Random.int 100 < 10 then s' else mutate_sample s'
+     if Random.int 100 < 90 then s' else mutate_sample s'
 
 (*
 let rec mutate_sample s =
@@ -433,25 +433,64 @@ let psq_validate q =
     total_interest := !total_interest -. interest e);
   assert (!count = 0)
   (* assert (abs_float !total_interest < 1e-3) *)
-  
+
+let run_exn acc s =
+  let res = run acc (Gen.sample_val s) in
+  res.rarest_bit (*
+  match res with
+  | Ok ()
+  | Error (Gen.Bad_test _) -> rarest_bit
+  | Error e -> raise (Fail (s, e, Printexc.get_raw_backtrace ())) *)
 
 let pqcycle acc q gen =
   psq_validate q;
-  let run_case s =
-    let res = run acc (Gen.sample_val s) in
-    let r = psq_offer acc q res.rarest_bit s in
-    match res.result with
-    | Ok ()
-    | Error (Gen.Bad_test _) -> r
-    | Error e -> raise (Fail (s, e, Printexc.get_raw_backtrace ())) in
-  (* if Random.int 1000 = 0 then run_case (mk_sample gen) |> ignore; *)
   match psq_take acc q with
-  | None -> run_case (mk_sample gen)
+  | None ->
+     Printf.printf "empty queue\n%!";
+     let s = mk_sample gen in
+     let bit = run_exn acc s in
+     psq_offer acc q bit s |> ignore
   | Some (bit, s) ->
      (* if Random.int 1 = 0 then Format.printf "%a@." Gen.pp_sample s; *)
-     let interest_generated = run_case (mutate_sample s) in
-     let f = psq_offer acc q bit s in
-     psq_mark_fuzz q bit;
-     f
+     let s' = mutate_sample s in
+     let bit' = run_exn acc s' in
+     let bit_still_present =
+       Bytes.get (acc.ibuf :> bytes) bit <> '\000' in
+     let accepted = psq_offer acc q bit' s' in
+     if not accepted || not bit_still_present || Gen.sample_len s <= Gen.sample_len s' then begin
+       let _ = psq_offer acc q bit s in
+       psq_mark_fuzz q bit
+     end else begin
+       Format.printf "dropping for new test %b %b:@.%a@.%a@.%!" accepted bit_still_present Gen.pp_sample s Gen.pp_sample s';
+     end
 
-     
+
+
+
+
+let pqsplice acc q gen =
+  let pool = Gen.Fragment_Pool.create () in
+  let max = ref 100 in
+  let vec = Vec.create () in
+  let shortest q =
+    Queue.peek q in
+(*    Queue.fold (fun s s' -> if Gen.sample_len s' < Gen.sample_len s then s' else s) (Queue.peek q) q in *) 
+  let rec fill_pool q =
+    decr max;
+    if !max = 0 then () else
+    match Psq.pop q with
+    | Some ((bit, s), q) ->
+       let s = shortest s.samples in
+       Vec.add vec s;
+       Gen.split_into pool s;
+       fill_pool q
+    | None -> () in
+  fill_pool q.entries;
+  Vec.to_array vec |> Array.iter (fun s ->
+    for i = 1 to 100 do
+      let s' = Gen.splice pool s in
+      let bit' = run_exn acc s' in
+      if psq_offer acc q bit' s' then begin
+        Format.printf "splice: @.%a@.%a@." Gen.pp_sample s Gen.pp_sample s';
+      end
+    done)

@@ -103,6 +103,15 @@ let list g = mk_list_gens g |> fst |> with_component_printer (fun comps ppf list
 let list1 g = mk_list_gens g |> snd |> with_component_printer (fun comps ppf list ->
   pp_list pp_printer ppf comps)
 
+(*
+let list g =
+  let rec l = lazy (choose [
+    const [];
+    map [unlazy l; unlazy l] @@ (fun a b -> a @ b)]) in
+  unlazy l
+*)
+
+
 let guard = function
   | true -> ()
   | false -> raise (Bad_test "guard failed")

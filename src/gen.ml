@@ -19,7 +19,7 @@ type 'a print_style =
 type 'a primitive_generator = Bytebuf.t -> 'a
 
 type 'a gen = {
-  id : 'a Typed_id.t;
+  id : 'a Typed_id.t Lazy.t;
 
   (* How should this generator be sampled? *)
   strategy : 'a gen_strategy;
@@ -53,7 +53,7 @@ type nonrec +'a list = 'a list = [] | (::) of 'a * 'a list
 (* Basic combinators *)
 
 let primitive ?size p =
-  { id = Typed_id.fresh ();
+  { id = Lazy.from_val (Typed_id.fresh ());
     strategy = Prim p;
     printer = PrintDefault;
     small_example_size = (match size with None -> 1 | Some n -> n);
@@ -71,7 +71,7 @@ let map gens f =
     | { small_example_size = s; unique_size = u } :: gens ->
        compute_sizes (small + s) (match uniq, u with Some u, Some u' -> Some (u + u') | _ -> None) gens in
   let small_example_size, unique_size = compute_sizes 1 (Some 0) gens in
-  { id = Typed_id.fresh ();
+  { id = Lazy.from_val (Typed_id.fresh ());
     strategy = Map (gens, f);
     printer = PrintDefault;
     small_example_size;
@@ -108,7 +108,7 @@ let choose gens =
   let mk_choose =
     function
     | [| |] ->
-       { id = Typed_id.fresh ();
+       { id = Lazy.from_val (Typed_id.fresh ());
          strategy = Choose [| |];
          printer = PrintDefault;
          small_example_size = max_int;
@@ -122,7 +122,7 @@ let choose gens =
            (fun u g -> match u, g.unique_size with
            | Some u, Some u' when u = u' -> Some u
            | _ -> None) arr.(0).unique_size arr in
-       { id = Typed_id.fresh ();
+       { id = Lazy.from_val (Typed_id.fresh ());
          strategy = Choose arr;
          printer = PrintDefault;
          small_example_size = arr.(0).small_example_size;
@@ -157,7 +157,7 @@ let unlazy gen =
         fine, but since we should never follow the recursion when
         trying to generate a small value, we report the small example
         size as max_int *)
-     { id = Typed_id.fresh ();    (* FIXME should this be fresh? *)
+     { id = lazy (let g = Lazy.force gen in Lazy.force g.id);
        strategy = Unlazy gen;
        printer = PrintDefault;
        small_example_size = max_int;
@@ -262,6 +262,24 @@ and sample_gens :
 let sample gen bb =
   try sample gen bb with Bytebuf.Buffer_exhausted -> raise (Bad_test "Byte buffer exhausted")
 
+
+let rec collect_subtrees_for_gen :
+  type a b . a gen -> a sample Vec.t -> b sample -> unit =
+  fun gen vec s ->
+  (match Typed_id.equal_t (Lazy.force gen.id) (Lazy.force s.generator.id) with
+  | Typed_id.Eq -> Vec.add vec s
+  | Typed_id.Not_Eq -> ());
+  match s.components with
+  | SMap (scases, _) -> collect_subtrees_for_gens gen vec scases
+  | SChoose (_, s) -> collect_subtrees_for_gen gen vec s
+  | SPrim _ -> ()
+and collect_subtrees_for_gens :
+  type a b res . a gen -> a sample Vec.t -> (b, res) sample_tuple -> unit =
+  fun gen vec ss -> match ss with
+  | TNil _ -> ()
+  | TCons (s, ss) -> collect_subtrees_for_gen gen vec s; collect_subtrees_for_gens gen vec ss
+
+
 let rec mutate :
   type a . a sample -> int ref -> Bytebuf.t -> a sample =
   fun s pos bytebuf ->
@@ -276,6 +294,15 @@ let rec mutate :
      Bytes.set newbuf !pos ((Char.code (Bytes.get newbuf !pos) + Random.int 255) land 0xff |> Char.chr);
      pos := !pos - s.length;
      sample s.generator (Bytebuf.of_bytes newbuf)
+  | SChoose _ when Random.int 100 < 20 ->
+     (* FIXME hack *)
+     pos := -s.length;
+     let subs =
+       let v = Vec.create () in
+       collect_subtrees_for_gen s.generator v s;
+       Vec.to_array v in
+     assert (Array.length subs > 0);
+     subs.(Random.int (Array.length subs))
   | SChoose _ when !pos = 0 ->
      (* replace subtree *)
      pos := -s.length;
@@ -376,7 +403,7 @@ end = struct
   let create () = H.create 20
 
   let add tbl (type a) (s : a sample) =
-    let id = s.generator.id in
+    let id = Lazy.force s.generator.id in
     match H.find tbl (Typed_id.to_int id) with
     | exception Not_found ->
        H.add tbl (Typed_id.to_int id)
@@ -394,8 +421,9 @@ end = struct
          fl.len <- fl.len + 1
 
   let sample tbl (type a) (g : a gen) : a sample =
-    let Fraglist fl = H.find tbl (Typed_id.to_int g.id) in (* may raise Not_found *)
-    match Typed_id.equal_t g.id fl.gen_id with
+    let id = Lazy.force g.id in
+    let Fraglist fl = H.find tbl (Typed_id.to_int id) in (* may raise Not_found *)
+    match Typed_id.equal_t id fl.gen_id with
     | Typed_id.Not_Eq -> assert false
     | Typed_id.Eq ->
        fl.samples.(Random.int fl.len)
@@ -422,17 +450,27 @@ let rec splice :
   type a . Fragment_Pool.t -> a sample -> int ref -> a sample =
   fun tbl s pos ->
   match s.components with
-  | _ when !pos < 0 || !pos > s.length ->
+  | _ when !pos < 0 || !pos >= s.length ->
      (* this subtree remains untouched *)
      pos := !pos - s.length;
      s
+  | _ when !pos >= s.length -> assert false
   | SMap (scases, f) ->
      (* FIXME of_bytes "" *)
      mk_sample (Bytebuf.of_bytes "") s.generator (SMap (splice_gens tbl scases f pos, f))
-  | _ ->
+  | SChoose (ch, s') ->
+     assert (0 <= !pos);
+     assert (!pos < s.length);
+     if !pos = 0 then
+       try Fragment_Pool.sample tbl s.generator
+       with Not_found -> s
+     else
+       (decr pos; mk_sample (Bytebuf.of_bytes "") s.generator (SChoose (ch, splice tbl s' pos)))
+  | SPrim _ ->
      try
        Fragment_Pool.sample tbl s.generator
-     with Not_found -> s
+     with 
+       Not_found -> s
 
 
 and splice_gens :

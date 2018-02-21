@@ -210,9 +210,13 @@ let pqcorpus_fuzz (Test (name, gens, run)) =
   let acc = Instrumentation.create_accumulator () in
   let q = Corpus.create_pqueue () in
   match
-  while true do
+  for i = 1 to 200_000 do
+(*    if Random.int 10000 = 0 then begin
+      Printf.printf "SPLICING\n%!";
+      Corpus.pqsplice acc q gens;
+    end; *)
     Corpus.pqcycle acc q gens;
-      Printf.printf "%d %d %d\n%!" acc.ntests q.count acc.nbits;
+    Printf.printf "%d %d %d\n%!" acc.ntests q.count acc.nbits;
   done
   with
   | () ->
@@ -307,3 +311,6 @@ let compute_freqs (Test (name, gens, run)) =
   done;
   Printf.printf " %d\n%!" !t;
   ()
+
+
+let fuzzers = ["quickcheck", quickcheck; "fuzz", fuzz; "mcmc", mcmc_fuzz; "corpus", corpus_fuzz; "qcorpus", qcorpus_fuzz; "pqcorpus", pqcorpus_fuzz]

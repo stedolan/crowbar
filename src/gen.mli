@@ -72,4 +72,5 @@ module Fragment_Pool : sig
   val sample : t -> 'a gen -> 'a sample (* may raise Not_found *)
 end
 
+val split_into : Fragment_Pool.t -> 'a sample -> unit
 val splice : Fragment_Pool.t -> 'a sample -> 'a sample
