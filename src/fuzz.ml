@@ -307,3 +307,40 @@ let compute_freqs (Test (name, gens, run)) =
   done;
   Printf.printf " %d\n%!" !t;
   ()
+
+
+external reset_instrumentation : bool -> unit = "caml_reset_afl_instrumentation"
+external sys_exit : int -> 'a = "caml_sys_exit"
+
+let afl_mode (Test (name, gens, run)) =
+  let gens = delay gens run in
+  let buf = Bytes.make 8000 '\000' in
+  input (open_in Sys.argv.(1)) buf 0 (Bytes.length buf) |> ignore;
+  let s = Gen.sample gens (Bytebuf.of_bytes buf) in
+  reset_instrumentation true;
+  match Gen.sample_val s () with
+  | () -> sys_exit 0
+  | exception (Gen.Bad_test _) -> sys_exit 1
+  | exception _ -> Unix.kill (Unix.getpid ()) Sys.sigabrt; assert false
+
+let dump_instrumentation (Test (name, gens, run)) =
+  let acc = Instrumentation.create_accumulator ~debug_log:true () in
+  let gens = delay gens run in
+  let buf = Bytes.make 8000 '\000' in
+  input (open_in Sys.argv.(1)) buf 0 (Bytes.length buf) |> ignore;
+  let s = Gen.sample gens (Bytebuf.of_bytes buf) in
+  let r = (Instrumentation.run acc (Gen.sample_val s)) in
+  let fd = open_out "instrumentation.txt" in
+  for i = 0 to Instrumentation.buffer_size - 1 do
+    if Bytes.get (acc.ibuf :> bytes) i <> '\000' then
+      Printf.fprintf fd "%06d\n" i
+  done;
+  close_out fd;
+  match r.Instrumentation.result with
+  | Ok () -> TestPass 1
+  | Error (Fail(s, Std_generators.Failed_test p, _)) ->
+     TestFail (acc.ntests, s, p)
+  | Error (Fail(s, e, bt)) ->
+     TestExn (acc.ntests, s, e, bt)
+  | Error (e) ->
+     GenFail (acc.ntests, e, Printexc.get_raw_backtrace ())
