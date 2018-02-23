@@ -210,11 +210,11 @@ let pqcorpus_fuzz (Test (name, gens, run)) =
   let acc = Instrumentation.create_accumulator () in
   let q = Corpus.create_pqueue () in
   match
-  for i = 1 to 200_000 do
-(*    if Random.int 10000 = 0 then begin
+  while true do (*for i = 1 to 200_000 do*)
+    if Random.int 1000 = 0 then begin
       Printf.printf "SPLICING\n%!";
       Corpus.pqsplice acc q gens;
-    end; *)
+    end;
     Corpus.pqcycle acc q gens;
     Printf.printf "%d %d %d\n%!" acc.ntests q.count acc.nbits;
   done

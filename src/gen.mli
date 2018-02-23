@@ -61,9 +61,12 @@ val pp_sample : 'a sample Printers.printer
    the new part. Can raise the same exceptions as [sample] *)
 val mutate : 'a sample -> int -> Bytebuf.t -> 'a sample
 
+val shrink : 'a sample -> 'a sample
+
 val serialize_into : 'a sample -> Bytebuf.t -> unit
 
 
+val dup : 'a sample -> 'a sample option
 
 module Fragment_Pool : sig
   type t

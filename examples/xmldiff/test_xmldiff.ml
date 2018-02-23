@@ -10,8 +10,13 @@ let attrs =
     map [elem_name; ident] Xmldiff.Nmap.singleton
   ]
 
+
+let pp_xml ppf xml =
+  pp ppf "%s" (Xmldiff.string_of_xml xml)
+
+
 let rec xml = lazy (
-  choose [
+  with_printer pp_xml @@ choose [
     const (`D "a");
     map [ident] (fun s -> `D s);
     map [elem_name; attrs; list (unlazy xml)] (fun s attrs elems ->
@@ -30,9 +35,6 @@ let rec xml = lazy (
 let lazy xml = xml
 
 let xml = map [xml] (fun d -> `E (("", "a"), Xmldiff.Nmap.empty, [d]))
-
-let pp_xml ppf xml =
-  pp ppf "%s" (Xmldiff.string_of_xml xml)
 let xml = with_printer pp_xml xml
 
 

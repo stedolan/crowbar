@@ -279,10 +279,19 @@ and collect_subtrees_for_gens :
   | TNil _ -> ()
   | TCons (s, ss) -> collect_subtrees_for_gen gen vec s; collect_subtrees_for_gens gen vec ss
 
+type resampler = { resample : 'a . 'a gen -> 'a sample }
+let resampler_of s =
+  let resample g =
+    let v = Vec.create () in
+    collect_subtrees_for_gen g v s;
+    let subs = Vec.to_array v in
+    assert (Array.length subs > 0);
+    subs.(Random.int (Array.length subs)) in
+  { resample }
 
 let rec mutate :
-  type a . a sample -> int ref -> Bytebuf.t -> a sample =
-  fun s pos bytebuf ->
+  type a . resampler -> a sample -> int ref -> Bytebuf.t -> a sample =
+  fun resampler s pos bytebuf ->
   match s.components with
   | _ when !pos < 0 || !pos > s.length ->
      (* this subtree remains untouched *)
@@ -294,7 +303,62 @@ let rec mutate :
      Bytes.set newbuf !pos ((Char.code (Bytes.get newbuf !pos) + Random.int 255) land 0xff |> Char.chr);
      pos := !pos - s.length;
      sample s.generator (Bytebuf.of_bytes newbuf)
-  | SChoose _ when Random.int 100 < 20 ->
+(*  | SChoose _ when Random.int 100 < 20 ->
+     (* FIXME hack *)
+     pos := -s.length;
+     let subs =
+       let v = Vec.create () in
+       collect_subtrees_for_gen s.generator v s;
+       Vec.to_array v in
+     assert (Array.length subs > 0);
+     subs.(Random.int (Array.length subs)) *)
+  | SChoose _ when !pos = 0 ->
+     (* replace subtree *)
+     pos := -s.length;
+    sample s.generator bytebuf
+  | SChoose (ch, t) ->
+     decr pos;  (* skip tag byte *)
+     mk_sample bytebuf s.generator (SChoose (ch, mutate resampler t pos bytebuf))
+  | SMap (scases, f) ->
+     mk_sample bytebuf s.generator (SMap (mutate_gens resampler scases f pos bytebuf, f))
+
+and mutate_gens :
+  type f res . resampler -> (f, res) sample_tuple -> f -> int ref -> Bytebuf.t -> (f, res) sample_tuple =
+  fun resampler scases f pos bytebuf -> match scases with
+  | TNil _ ->
+     TNil f
+  | TCons (subcase, sample_tuple) ->
+     let subcase' = mutate resampler subcase pos bytebuf in
+     let sample_tuple' = mutate_gens resampler sample_tuple (f subcase'.value) pos bytebuf in
+     TCons (subcase', sample_tuple')
+
+let mutate sample pos bytebuf =
+  if pos < 0 || pos > sample.length then
+    raise (Invalid_argument "Gen.mutate: invalid position");
+  try mutate (resampler_of sample) sample (ref pos) bytebuf with Bytebuf.Buffer_exhausted -> raise (Bad_test "Byte buffer exhausted")
+
+
+let zeros = Bytes.make 100 '\000'
+
+let rec shrink :
+  type a . a sample -> int ref -> a sample =
+  fun s pos ->
+  match s.components with
+  | _ when !pos < 0 || !pos > s.length ->
+     (* this subtree remains untouched *)
+     pos := !pos - s.length;
+     s
+  | SPrim (mark, p) ->
+     let newbuf = Bytes.make (s.length + 20) '\000' in
+     Bytebuf.copy_since_mark (Bytebuf.of_bytes newbuf) mark s.length;
+     let del = Random.int s.length in
+     Bytes.blit newbuf (del + 1) newbuf del (s.length - del);
+     (*Bytes.set newbuf !pos ((Char.code (Bytes.get newbuf !pos) + Random.int 255) land 0xff |> Char.chr);*)
+     pos := !pos - s.length;
+     sample s.generator (Bytebuf.of_bytes newbuf)
+  | SChoose _ when !pos = 0 && Random.int 100 < 20 ->
+     sample s.generator (Bytebuf.of_bytes zeros)
+  | SChoose _ when !pos = 0 ->
      (* FIXME hack *)
      pos := -s.length;
      let subs =
@@ -303,30 +367,27 @@ let rec mutate :
        Vec.to_array v in
      assert (Array.length subs > 0);
      subs.(Random.int (Array.length subs))
-  | SChoose _ when !pos = 0 ->
-     (* replace subtree *)
-     pos := -s.length;
-     sample s.generator bytebuf
   | SChoose (ch, t) ->
      decr pos;  (* skip tag byte *)
-     mk_sample bytebuf s.generator (SChoose (ch, mutate t pos bytebuf))
+     mk_sample (Bytebuf.of_bytes "") s.generator (SChoose (ch, shrink t pos))
   | SMap (scases, f) ->
-     mk_sample bytebuf s.generator (SMap (mutate_gens scases f pos bytebuf, f))
+     mk_sample (Bytebuf.of_bytes "") s.generator (SMap (shrink_gens scases f pos, f))
 
-and mutate_gens :
-  type f res . (f, res) sample_tuple -> f -> int ref -> Bytebuf.t -> (f, res) sample_tuple =
-  fun scases f pos bytebuf -> match scases with
+and shrink_gens :
+  type f res . (f, res) sample_tuple -> f -> int ref -> (f, res) sample_tuple =
+  fun scases f pos -> match scases with
   | TNil _ ->
      TNil f
   | TCons (subcase, sample_tuple) ->
-     let subcase' = mutate subcase pos bytebuf in
-     let sample_tuple' = mutate_gens sample_tuple (f subcase'.value) pos bytebuf in
+     let subcase' = shrink subcase pos in
+     let sample_tuple' = shrink_gens sample_tuple (f subcase'.value) pos in
      TCons (subcase', sample_tuple')
 
-let mutate sample pos bytebuf =
-  if pos < 0 || pos > sample.length then
-    raise (Invalid_argument "Gen.mutate: invalid position");
-  try mutate sample (ref pos) bytebuf with Bytebuf.Buffer_exhausted -> raise (Bad_test "Byte buffer exhausted")
+let shrink sample =
+  shrink sample (ref (Random.int sample.length))
+
+
+
 
 
 let rec serialize_into :
@@ -380,6 +441,83 @@ let rec pp_sample : type a . a sample Printers.printer = fun ppf s ->
 and pp_tuple : type k res . (k, res) sample_tuple -> unit Printers.printer list = function
   | TNil _ -> []
   | TCons (s, rest) -> (fun ppf () -> pp_sample ppf s) :: pp_tuple rest
+
+
+
+
+
+type ('env, 'a) sample_act = Recurse of 'env | Keep | Replace_with of 'a sample
+type 'env sample_action = { tx : 'a . 'env -> 'a sample -> ('env, 'a) sample_act }
+
+type 'env sample_transformer = { map : 'a . 'env -> 'a sample -> 'a sample }
+
+let rec transform (type env) ({ tx } : env sample_action) =
+  let rec transform :
+    type a . env -> a sample -> a sample =
+    fun env s ->
+    match tx env s with
+    | Keep -> s
+    | Replace_with s' -> s'
+    | Recurse env ->
+       match s.components with
+       | SMap (scases, f) ->
+          mk_sample (Bytebuf.of_bytes "") s.generator (SMap (transform_gens env scases f, f))
+       | SChoose (ch, t) ->
+          mk_sample (Bytebuf.of_bytes "") s.generator (SChoose (ch, transform env t))
+       | SPrim _ ->
+          s
+  and transform_gens :
+    type f res . env -> (f, res) sample_tuple -> f -> (f, res) sample_tuple =
+    fun env scases f -> match scases with
+    | TNil _ -> TNil f
+    | TCons (subcase, sample_tuple) ->
+       let subcase = transform env subcase in
+       let sample_tuple = transform_gens env sample_tuple (f subcase.value) in
+       TCons (subcase, sample_tuple) in
+  { map = transform } 
+
+let replace_because_same_generator :
+  type a b . a sample -> b sample -> a sample =
+  fun s s' ->
+  match Typed_id.equal_t (Lazy.force s.generator.id) (Lazy.force s'.generator.id) with
+  | Typed_id.Not_Eq -> failwith "generator IDs should have been equal!"
+  | Typed_id.Eq -> s'
+
+
+type gen_sample = Sample : 'a sample -> gen_sample    
+
+let collect_ids =
+  transform { tx = fun idvec s ->
+    (Vec.add idvec (Sample s); Recurse idvec) }
+let replace_subtree =
+  transform { tx = fun ((pos, Sample s') as env) s ->
+    if !pos = 0 then
+      (pos := -1; Replace_with (replace_because_same_generator s s'))
+    else
+      (decr pos; Recurse env) }
+
+let dup (orig : 'a sample) : 'a sample option =
+  let v = Vec.create () in
+  collect_ids.map v orig |> ignore;
+  let v = Vec.to_array v in
+  let src = Random.int (Array.length v) in
+  let Sample s as gs = v.(src) in
+  let res = ref None in
+  let off = Random.int (Array.length v) in
+  let idx n =
+    let n = off + n in
+    if n >= Array.length v then n - Array.length v else n in
+  for i = 0 to Array.length v - 1 do
+    if !res = None && idx i <> src then begin
+      let Sample s' = v.(idx i) in
+      if Typed_id.equal (Lazy.force s.generator.id) (Lazy.force s'.generator.id) then begin
+        Format.printf "copy %a over to %a@." pp_sample s pp_sample s';
+        res := Some (replace_subtree.map (ref (idx i), gs) orig)
+      end
+    end
+  done;
+  !res
+
   
 
 

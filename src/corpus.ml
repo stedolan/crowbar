@@ -67,9 +67,14 @@ let mkbuf () =
   Bytebuf.of_bytes buf
 
 let rec mutate_sample s =
-(*  if Random.int 100 < 5 then
-    (Gen.Fragment_Pool.add tbl s; Gen.splice tbl s)
-  else *)
+  if Random.int 100 < 5 then
+    (*(Gen.Fragment_Pool.add tbl s; Gen.splice tbl s)*)
+    match Gen.dup s with
+    | Some s' -> 
+       Format.printf "dup@.: %a@.: %a@." Gen.pp_sample s Gen.pp_sample s';
+       s'
+    | None -> mutate_sample s
+  else
   let open Gen in
   match mutate s (Random.int (sample_len s)) (mkbuf ()) with
   | exception Bad_test _ -> mutate_sample s
@@ -356,7 +361,7 @@ type psq_entry = {
 }
 
 let interest e =
-  (1./. (float_of_int (e.occurrences + e.amount_fuzzed) /. float_of_int e.ntests))
+  0. -. (float_of_int (e.occurrences + e.amount_fuzzed))
 
 module Psq = Psq.Make
   (struct type t = int let compare = compare end)
@@ -395,12 +400,27 @@ let psq_take acc q =
      Some (bit, s)
    end
 
+let rec shrink acc bit s iters =
+  if iters = 0 then s else begin
+    let s' = try Gen.shrink s with Gen.Bad_test _ -> s in
+    if Gen.sample_len s' >= Gen.sample_len s then
+      shrink acc bit s (iters - 1)
+    else begin
+      Instrumentation.with_instrumentation acc.ibuf (Gen.sample_val s') |> ignore;
+      if Bytes.get (acc.ibuf :> bytes) bit <> '\000' then
+        shrink acc bit s' (max iters 100)
+      else
+        shrink acc bit s (iters - 1)
+    end
+  end
+  
+
 let psq_offer acc q bit s =
   let e = Psq.find bit q.entries in
   let e_interest = 1./. (float_of_int acc.counts.(bit) /. float_of_int acc.ntests) in
   let num_samples = match e with None -> 0 | Some e -> Queue.length e.samples in
   let s_interest = e_interest /. (1. +. float_of_int num_samples) in
-  if s_interest > 1. then begin
+  if s_interest > 10. then begin
     let e = match e with
       | None -> { rarest_bit = bit;
                   occurrences = acc.counts.(bit);
@@ -411,7 +431,12 @@ let psq_offer acc q bit s =
          q.total_interest <- q.total_interest -. interest e;
          { e with ntests = acc.ntests; occurrences = acc.counts.(bit) } in
     (* FIXME: randomise *)
-    Queue.add s e.samples;
+    let shrunk = s (*shrink acc bit s 10*) in
+    if shrunk == s then
+      Format.printf "no shrink@.%a@." Gen.pp_sample s
+    else
+      Format.printf "shrunk@.%a@.%a@." Gen.pp_sample s Gen.pp_sample shrunk;
+    Queue.add shrunk e.samples;
     q.entries <- Psq.add bit e q.entries;
     q.total_interest <- q.total_interest +. interest e;
     q.count <- q.count + 1;
@@ -436,11 +461,11 @@ let psq_validate q =
 
 let run_exn acc s =
   let res = run acc (Gen.sample_val s) in
-  res.rarest_bit (*
-  match res with
+  (*  res.rarest_bit *)
+  match res.result with
   | Ok ()
-  | Error (Gen.Bad_test _) -> rarest_bit
-  | Error e -> raise (Fail (s, e, Printexc.get_raw_backtrace ())) *)
+  | Error (Gen.Bad_test _) -> res.rarest_bit
+  | Error e -> raise (Fail (s, e, Printexc.get_raw_backtrace ()))
 
 let pqcycle acc q gen =
   psq_validate q;
@@ -453,6 +478,7 @@ let pqcycle acc q gen =
   | Some (bit, s) ->
      (* if Random.int 1 = 0 then Format.printf "%a@." Gen.pp_sample s; *)
      let s' = mutate_sample s in
+     Format.printf "%a@." Gen.pp_sample s';
      let bit' = run_exn acc s' in
      let bit_still_present =
        Bytes.get (acc.ibuf :> bytes) bit <> '\000' in
@@ -487,7 +513,7 @@ let pqsplice acc q gen =
     | None -> () in
   fill_pool q.entries;
   Vec.to_array vec |> Array.iter (fun s ->
-    for i = 1 to 100 do
+    for i = 1 to 10 do
       let s' = Gen.splice pool s in
       let bit' = run_exn acc s' in
       if psq_offer acc q bit' s' then begin
