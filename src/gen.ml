@@ -427,8 +427,7 @@ let rec splice :
      pos := !pos - s.length;
      s
   | SMap (scases, f) ->
-     (* FIXME of_bytes "" *)
-     mk_sample (Bytebuf.of_bytes "") s.generator (SMap (splice_gens tbl scases f pos, f))
+     mk_sample (Bytebuf.of_bytes (Bytes.create 0)) s.generator (SMap (splice_gens tbl scases f pos, f))
   | _ ->
      try
        Fragment_Pool.sample tbl s.generator
