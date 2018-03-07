@@ -26,7 +26,10 @@ for line in fd:
     assert len(fields) == len(fieldnames)
     d = {k: parse(v) for k, v in zip(fieldnames, fields)}
     d['bits'] = int(round(d['map_size'] * 0.01 * MAP_SIZE))
-    d['tests'] = lines[-1]['tests'] + int(round((d['unix_time'] - lines[-1]['unix_time']) * d['execs_per_sec'])) if lines else 1
+    if 'total_execs' in d:
+        d['tests'] = d['total_execs']
+    else:
+        d['tests'] = lines[-1]['tests'] + int(round((d['unix_time'] - lines[-1]['unix_time']) * d['execs_per_sec'])) if lines else 1
     lines.append(d)
 
 print(json.dumps({"engine": "afl-fuzz", "log": lines}, indent=2))
