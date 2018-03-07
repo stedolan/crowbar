@@ -15,6 +15,12 @@ let pp_exn_bt ppf (e, bt) =
   |> Str.split (Str.regexp "\n")
   |> List.iter (pp ppf "@,%s")
 
+let pp_pair pa pb ppf (a, b) = pp ppf "%a@ %a" pa a pb b
+
+let pp_option pa ppf = function
+  | None -> pp ppf "None"
+  | Some a -> pp ppf "Some %a" pa a
+
 let pp_delim ppf = function
   | "[", `Close -> pp ppf "]"
   | "{", `Close -> pp ppf "}"
