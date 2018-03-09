@@ -365,10 +365,9 @@ module Psq = Psq.Make
 type psq_corpus = {
   mutable entries : Psq.t;
   mutable count : int;
-  mutable total_interest : float;
 }
 
-let create_pqueue () = { entries = Psq.empty; count = 0; total_interest = 0. }
+let create_pqueue () = { entries = Psq.empty; count = 0 }
 
 open Instrumentation
 let psq_take acc q =
@@ -376,7 +375,6 @@ let psq_take acc q =
   | None ->
      None
   | Some ((bit, e), entries) -> begin
-     q.total_interest <- q.total_interest -. interest e;
      q.count <- q.count - 1;
      assert (bit = e.rarest_bit);
      let s = Queue.pop e.samples in
@@ -389,7 +387,6 @@ let psq_take acc q =
        q.entries <- entries
      else begin
        let e = { e with ntests = acc.ntests; occurrences = acc.counts.(bit) } in
-       q.total_interest <- q.total_interest +. interest e;
        q.entries <- Psq.add bit e entries;
      end;
      Some (bit, s)
@@ -408,12 +405,10 @@ let psq_offer acc q bit s =
                   samples = Queue.create ();
                   amount_fuzzed = 0 }
       | Some e -> 
-         q.total_interest <- q.total_interest -. interest e;
          { e with ntests = acc.ntests; occurrences = acc.counts.(bit) } in
     (* FIXME: randomise *)
     Queue.add s e.samples;
     q.entries <- Psq.add bit e q.entries;
-    q.total_interest <- q.total_interest +. interest e;
     q.count <- q.count + 1;
     true
   end else false
@@ -426,13 +421,10 @@ let psq_mark_fuzz q bit =
 
 let psq_validate q =
   let count = ref q.count in
-  let total_interest = ref q.total_interest in
   q.entries |> Psq.iter (fun b e ->
     assert (not (Queue.is_empty e.samples));
-    count := !count - Queue.length e.samples;
-    total_interest := !total_interest -. interest e);
+    count := !count - Queue.length e.samples);
   assert (!count = 0)
-  (* assert (abs_float !total_interest < 1e-3) *)
   
 
 let pqcycle acc q gen =
