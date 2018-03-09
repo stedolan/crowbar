@@ -50,6 +50,10 @@ let bytes = primitive (fun src ->
   Bytes.sub_string buf 0 count)
   |> with_printer pp_string
 
+let bytes_fixed n = primitive (fun src ->
+  Bytebuf.read_bytes src n)
+  |> with_printer pp_string
+
 let range n =
   if n <= 0 then
     raise (Invalid_argument "Crowbar.range: argument must be positive")

@@ -24,6 +24,10 @@ let read_char src =
 let read_byte src =
   Char.code (read_char src)
 
+let read_bytes src n =
+  let off = getbytes src n in
+  Bytes.sub_string src.buf off n
+
 let read_bool src =
   let n = read_byte src in
   n land 1 = 1

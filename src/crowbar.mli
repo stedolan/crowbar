@@ -45,6 +45,9 @@ val float : float gen
 val bytes : string gen
 (** [bytes] generates a string of arbitrary length (including zero-length strings).  *)
 
+val bytes_fixed : int -> string gen
+(** [bytes] generates a string of the specified length.  *)
+
 val bool : bool gen
 (** [bool] generates a yes or no answer. *)
 
