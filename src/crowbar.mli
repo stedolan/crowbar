@@ -99,6 +99,13 @@ val fix : ('a gen -> 'a gen) -> 'a gen
     ]}
     *)
 
+val depending_on : 'a gen -> ('a -> 'b gen) -> 'b gen
+val fix_dep :
+  ?hash:('a -> int) ->
+  ?equal:('a -> 'a -> bool) ->
+  (('a -> 'b gen) -> ('a -> 'b gen)) -> ('a -> 'b gen)
+(* FIXME docs *)
+
 val const : 'a -> 'a gen
 (** [const a] always generates [a]. *)
 

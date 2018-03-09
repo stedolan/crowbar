@@ -36,6 +36,7 @@ type 'a gen = {
 
 and 'a gen_strategy =
   | Map : ('f, 'a) gens * 'f -> 'a gen_strategy
+  | Bind : 'a gen * ('a -> 'b gen) -> 'b gen_strategy
   | Choose of 'a gen array       (* 1 <= length < 256 *)
   | Unlazy of 'a gen Lazy.t
   | Prim of 'a primitive_generator
@@ -164,6 +165,30 @@ let unlazy gen =
        unique_size = None }
 
 
+let memoize (type a) ?(hash=Hashtbl.hash) ?(equal=(fun a b -> compare a b = 0)) f =
+  let module H = Hashtbl.Make (struct type t = a let hash = hash let equal = equal end) in
+  let tbl = H.create 10 in
+  fun x ->
+    match H.find tbl x with
+    | fx -> fx
+    | exception Not_found ->
+       let fx = f x in
+       H.add tbl x fx;
+       fx
+
+let depending_on gen f =
+  { id = Typed_id.fresh ();
+    strategy = Bind (gen, f);
+    printer = PrintDefault;
+    small_example_size = max_int; (* FIXME: can we do better than max_int here? *)
+    unique_size = None }
+
+let fix_dep ?hash ?equal f =
+  let rec memo = lazy (
+    memoize ?hash ?equal (fun x -> f (Lazy.force memo) x)
+  ) in
+  Lazy.force memo
+
 let with_printer pv gen =
   { gen with printer = PrintValue pv }
 
@@ -201,6 +226,7 @@ type 'a sample = {
 
 and 'res sample_components =
   | SMap : ('f, 'res) sample_tuple * 'f -> 'res sample_components
+  | SBind : 'a sample * ('a -> 'b gen) * 'b sample -> 'b sample_components
   | SChoose of int * 'res sample
   | SPrim of Bytebuf.mark * 'res primitive_generator
 
@@ -225,6 +251,8 @@ let mk_sample bytebuf generator components =
        | TCons (x, sample_tuple) ->
           go generator components (length + x.length) sample_tuple in
      go generator components 0 sample_tuple
+  | SBind (sx, f, sfx) ->
+     { generator; value = sfx.value; length = sx.length + sfx.length; components }
   | SChoose (tag, t) ->
      { generator; value = t.value; length = t.length + 1; components }
   | SPrim (mark, p) ->
@@ -239,6 +267,10 @@ let rec sample :
   match gen.strategy with
   | Map (gens, f) ->
      mk_sample bytebuf gen (SMap (sample_gens gens f bytebuf, f))
+  | Bind (x, f) ->
+     let sx = sample x bytebuf in
+     let sfx = sample (f sx.value) bytebuf in
+     mk_sample bytebuf gen (SBind (sx, f, sfx))
   | Choose gens ->
      let b = Bytebuf.read_byte bytebuf mod Array.length gens in
      (* FIXME: update underlying buffer? *)
@@ -261,6 +293,30 @@ and sample_gens :
 
 let sample gen bb =
   try sample gen bb with Bytebuf.Buffer_exhausted -> raise (Bad_test "Byte buffer exhausted")
+
+
+let rec serialize_into :
+  type a . a sample -> Bytebuf.t -> unit =
+  fun s b ->
+  assert (b.len - b.pos >= s.length);
+  match s.components with
+  | SMap (subcases, f) ->
+     serialize_tuple_into subcases b
+  | SBind (sx, f, sfx) ->
+     serialize_into sx b; serialize_into sfx b
+  | SChoose (tag, tc) ->
+     Bytebuf.write_char b (Char.chr tag);
+     serialize_into tc b
+  | SPrim (mark, p) ->
+     Bytebuf.copy_since_mark b mark s.length
+
+and serialize_tuple_into :
+  type k res . (k, res) sample_tuple -> Bytebuf.t -> unit =
+  fun ss b -> match ss with
+  | TNil _ -> ()
+  | TCons (s, rest) -> serialize_into s b; serialize_tuple_into rest b
+
+
 
 let rec mutate :
   type a . a sample -> int ref -> Bytebuf.t -> a sample =
@@ -285,6 +341,19 @@ let rec mutate :
      mk_sample bytebuf s.generator (SChoose (ch, mutate t pos bytebuf))
   | SMap (scases, f) ->
      mk_sample bytebuf s.generator (SMap (mutate_gens scases f pos bytebuf, f))
+  | SBind (sx, f, sfx) ->
+     if !pos < sx.length then
+       let sx' = mutate sx pos bytebuf in
+       (* must resample sfx, since the generator changed *)
+       let buf = Bytes.make (sfx.length + 50) '\000' in (* FIXME: buffer init? 50? *)
+       serialize_into sfx (Bytebuf.of_bytes buf);
+       let sfx' = sample (f sx'.value) (Bytebuf.of_bytes buf) in
+       mk_sample bytebuf s.generator (SBind (sx', f, sfx'))
+     else begin
+       pos := !pos - sx.length;
+       mk_sample bytebuf s.generator (SBind (sx, f, mutate sfx pos bytebuf))
+     end
+       
 
 and mutate_gens :
   type f res . (f, res) sample_tuple -> f -> int ref -> Bytebuf.t -> (f, res) sample_tuple =
@@ -302,25 +371,6 @@ let mutate sample pos bytebuf =
   try mutate sample (ref pos) bytebuf with Bytebuf.Buffer_exhausted -> raise (Bad_test "Byte buffer exhausted")
 
 
-let rec serialize_into :
-  type a . a sample -> Bytebuf.t -> unit =
-  fun s b ->
-  assert (b.len - b.pos >= s.length);
-  match s.components with
-  | SMap (subcases, f) ->
-     serialize_tuple_into subcases b
-  | SChoose (tag, tc) ->
-     Bytebuf.write_char b (Char.chr tag);
-     serialize_into tc b
-  | SPrim (mark, p) ->
-     Bytebuf.copy_since_mark b mark s.length
-
-and serialize_tuple_into :
-  type k res . (k, res) sample_tuple -> Bytebuf.t -> unit =
-  fun ss b -> match ss with
-  | TNil _ -> ()
-  | TCons (s, rest) -> serialize_into s b; serialize_tuple_into rest b
-
 
 let rec pp_sample : type a . a sample Printers.printer = fun ppf s ->
   let open Printers in
@@ -335,6 +385,8 @@ let rec pp_sample : type a . a sample Printers.printer = fun ppf s ->
         pp_sample ppf s
      | SMap (comps, _) ->
         pp_list pp_printer ppf (pp_tuple comps)
+     | SBind (sx, f, sfx) ->
+        pp ppf "@[[%a;@ %a]@]" pp_sample sx pp_sample sfx
      | SChoose (k, s) ->
         pp ppf "#%d %a" k pp_sample s
      | SPrim _ ->
@@ -346,6 +398,7 @@ let rec pp_sample : type a . a sample Printers.printer = fun ppf s ->
      let comps =
        match s.components with
        | SMap (comps, _) -> pp_tuple comps
+       | SBind (sx, f, sfx) -> [(fun ppf () -> pp_sample ppf sx); (fun ppf () -> pp_sample ppf sfx)]
        | SChoose (_, s) -> [fun ppf () -> pp_sample ppf s]
        | SPrim _ -> [] in
      pcomps comps ppf s.value
@@ -409,6 +462,7 @@ let rec split_into :
   match s.components with
   | SChoose (ch, t) -> split_into tbl t
   | SMap (scases, f) -> split_into_gens tbl scases
+  | SBind (sx, f, sfx) -> split_into tbl sx; split_into tbl sfx
   | SPrim _ -> ()
 
 and split_into_gens :

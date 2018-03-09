@@ -19,6 +19,13 @@ val const : 'a -> 'a gen
 val choose : 'a gen list -> 'a gen
 val unlazy : 'a gen Lazy.t -> 'a gen
 
+val depending_on : 'a gen -> ('a -> 'b gen) -> 'b gen
+
+val fix_dep :
+  ?hash:('a -> int) ->
+  ?equal:('a -> 'a -> bool) ->
+  (('a -> 'b gen) -> 'a -> 'b gen) -> 'a -> 'b gen
+
 (* delay gens f is like map, but delays execution of f
 
        map gens f ==
