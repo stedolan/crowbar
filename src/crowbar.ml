@@ -150,6 +150,10 @@ let bytes = Print (pp_string, Primitive (fun src ->
   let count = read_bytes 0 in
   Bytes.sub_string buf 0 count))
 
+let bytes_fixed n = Print (pp_string, Primitive (fun src ->
+  let off = getbytes src n in
+  Bytes.sub_string src.buf off n))
+
 let choose_int n state =
   assert (n > 0);
   if n = 1 then
