@@ -314,14 +314,16 @@ external sys_exit : int -> 'a = "caml_sys_exit"
 
 let afl_mode (Test (name, gens, run)) =
   let gens = delay gens run in
-  let buf = Bytes.make 8000 '\000' in
-  input (open_in Sys.argv.(1)) buf 0 (Bytes.length buf) |> ignore;
-  let s = Gen.sample gens (Bytebuf.of_bytes buf) in
-  reset_instrumentation true;
-  match Gen.sample_val s () with
-  | () -> sys_exit 0
-  | exception (Gen.Bad_test _) -> sys_exit 1
-  | exception _ -> Unix.kill (Unix.getpid ()) Sys.sigabrt; assert false
+
+  AflPersistent.run (fun () ->
+      let buf = Bytes.make 8000 '\000' in
+      input (open_in Sys.argv.(1)) buf 0 (Bytes.length buf) |> ignore;
+      let s = Gen.sample gens (Bytebuf.of_bytes buf) in
+      reset_instrumentation true;
+      match Gen.sample_val s () with
+      | () -> ()
+      | exception (Gen.Bad_test _) -> sys_exit 1
+      | exception _ -> Unix.kill (Unix.getpid ()) Sys.sigabrt; assert false); TestPass 0
 
 let dump_instrumentation (Test (name, gens, run)) =
   let acc = Instrumentation.create_accumulator ~debug_log:true () in
