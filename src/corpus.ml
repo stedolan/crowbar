@@ -356,11 +356,11 @@ type psq_entry = {
 }
 
 let interest e =
-  (1./. (float_of_int (e.occurrences + e.amount_fuzzed) /. float_of_int e.ntests))
+  e.occurrences + e.amount_fuzzed
 
 module Psq = Psq.Make
   (struct type t = int let compare = compare end)
-  (struct type t = psq_entry let compare a b = compare (interest b) (interest a) end)
+  (struct type t = psq_entry let compare a b = compare (interest a) (interest b) end)
 
 type psq_corpus = {
   mutable entries : Psq.t;
@@ -378,11 +378,11 @@ let psq_take acc q =
      q.count <- q.count - 1;
      assert (bit = e.rarest_bit);
      let s = Queue.pop e.samples in
-     Printf.printf "%04x(%2d) %5d/%6d ~ %5d/%6d - %.2f > %.2f %d\n"
+     Printf.printf "%04x(%2d) %5d/%6d ~ %5d/%6d - %3d < %3d %d\n"
        e.rarest_bit (Queue.length e.samples)
        e.occurrences e.ntests
        acc.counts.(e.rarest_bit) acc.ntests
-       (interest e) (match Psq.min entries with None -> 0. | Some (bit, e') -> interest e') e.amount_fuzzed;
+       (interest e) (match Psq.min entries with None -> max_int | Some (bit, e') -> interest e') e.amount_fuzzed;
      if Queue.is_empty e.samples then
        q.entries <- entries
      else begin
