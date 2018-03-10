@@ -14,7 +14,7 @@ depends: [
   "ocamlfind"
   "jbuilder" {build}
   "ocplib-endian"
-  "cmdliner"
+#  "cmdliner"
   "afl-persistent" {>= "1.1"}
   "psq"
   "yojson"

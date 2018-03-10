@@ -1,6 +1,7 @@
 type buf = private bytes
 type log
 
+
 type accumulator = private {
   (* temporary buffer, reused by every call to run *)
   ibuf : buf;
@@ -52,3 +53,6 @@ val with_instrumentation : buf -> (unit -> 'a) -> ('a, exn) result
    returns how many there are *)
 val find_new_bits : old_bits:buf -> new_bits:buf -> out:int array -> int
 
+type backtrace = Printexc.Slot.t list
+val capture_backtrace_for_bit : int -> (unit -> 'a) -> string * string
+val pp_backtrace_tree : Format.formatter -> backtrace list -> unit

@@ -94,6 +94,9 @@ type log = {
 
 type loginfo = (string * Yojson.Basic.json) list
 
+
+type backtrace = Printexc.Slot.t list
+
 type accumulator = {
   (* temporary buffer, reused by every call to run *)
   ibuf : buf;
@@ -159,7 +162,7 @@ let run ?status acc f =
   done;
   new_bits := List.rev !new_bits;
   acc.ntests <- acc.ntests + 1;
-  if acc.log.debug || !new_bits <> [] then begin
+  if acc.log.debug (*|| !new_bits <> []*) then begin
     let status = match status with Some f -> f () | _ -> [] in
     let entry = Entry { ntests = acc.ntests; nbits = acc.nbits;
                         new_bits = !new_bits; status } in
@@ -170,3 +173,105 @@ let run ?status acc f =
     rarest_bit = !rarest_bit;
     rarest_count = !rarest_count;
     new_bits = !new_bits }
+
+
+external set_watch : int -> unit = "caml_instrumentation_set_watch"
+external get_pc : unit -> Nativeint.t = "caml_instrumentation_get_pc"
+
+
+let baseaddr =
+  let fd = Scanf.Scanning.from_file "/proc/self/maps" in
+  let rec go () =
+    match   
+      Scanf.bscanf fd "%Lx-%Lx %s %x %d:%d %d %s@\n"
+        (fun pstart pend mode _ _ _ _ file -> pstart, pend, mode, file)
+    with
+      pstart, pend, "r-xp", file when file = Sys.executable_name ->
+       pstart
+    | _ -> go () in
+  go ()
+
+let locations = Hashtbl.create 20
+
+let to_location pc =
+  try Hashtbl.find locations pc with
+  Not_found ->
+   try
+   let off = Int64.(sub (of_nativeint pc) baseaddr) in
+   let fd = Unix.open_process_in (Printf.sprintf "addr2line -sfe '%s' 0x%Lx" Sys.executable_name off) in
+   let func = input_line fd in
+   let func =
+     func
+     |> Str.replace_first (Str.regexp "^caml") ""
+     |> Str.global_replace (Str.regexp "__") "."
+     |> Str.replace_first (Str.regexp "_[0-9]*$") "" in
+   let loc = input_line fd in
+   close_in fd;
+   Hashtbl.add locations pc (func, loc);
+   (func, loc)
+   with
+     _ -> ("?", "?")
+
+
+let capture_backtrace_for_bit bit f =
+  let bt = ref None in
+  reset_instrumentation true;
+  set_watch bit;
+  let v =
+    (* Sys.opaque_identity inhibits inlining *)
+    match (Sys.opaque_identity f) () with
+    | x -> Ok x
+    | exception e -> Error e in
+  set_watch (-1);
+
+  let pc = get_pc () in
+  if pc <> Nativeint.zero then
+    to_location pc
+  else
+    Printf.sprintf "0x%Lx" (Int64.of_nativeint pc), "?"
+
+
+let filter_backtrace bt =
+  let rec filter_bt i = function
+    | [] -> []
+    | slot :: rest ->
+       match Printexc.Slot.location slot with
+       | Some s when s.filename = __FILE__ ->
+          if i = 0 then filter_bt (i+1) rest else []
+       | _ -> slot :: filter_bt (i+1) rest in
+  let bt = match !bt with
+    | None -> []
+    | Some bt ->
+       match Printexc.backtrace_slots bt with
+       | None -> []
+       | Some slots -> (slots |> Array.to_list |> filter_bt 0) in
+  bt
+
+let pp_backtrace_tree ppf backtraces =
+  let print_slot ppf slot = match Printexc.Slot.location slot with
+    | None -> Format.fprintf ppf "<unknown>"
+    | Some { filename; line_number; start_char; end_char; _ } ->
+       (*Format.fprintf ppf "%s:%d:%d-%d" filename line_number start_char end_char*) 
+       Format.fprintf ppf "%s:%d" filename line_number in
+  let rec print_bt prev curr =
+    match prev, curr with
+    | [], [] ->
+       ()
+    | sp :: prev, sc :: curr when sp = sc ->
+       print_bt prev curr
+    | sp :: prev, [] ->
+       Format.fprintf ppf "@]"; print_bt prev []
+    | [], sc :: curr ->
+       Format.fprintf ppf "@ @[<v 2>%a" print_slot sc;
+       print_bt [] curr
+    | _, _ ->
+       print_bt prev [];
+       print_bt [] curr in
+  let rec print_all prev = function
+    | [] -> print_bt prev []
+    | bt :: bts -> 
+       print_bt prev bt; print_all bt bts
+       (* print_bt [] bt; print_bt bt []; Format.fprintf ppf "JJJ"; print_all [] bts *)
+
+  in
+  print_all [] (List.sort compare (List.map List.rev backtraces))

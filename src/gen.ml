@@ -65,6 +65,7 @@ exception Bad_test of string
 let map gens f =
   (* The small_example_size of `map gens f` is the sum of the
      sizes of gens, plus 1 *)
+  (* FIXME overflow *)
   let rec compute_sizes :
     type k res . int -> int option -> (k, res) gens -> int * int option =
     fun small uniq gens -> match gens with

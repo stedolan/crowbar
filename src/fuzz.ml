@@ -209,10 +209,19 @@ let pqcorpus_fuzz (Test (name, gens, run)) =
   let gens = delay gens run in
   let acc = Instrumentation.create_accumulator () in
   let q = Corpus.create_pqueue () in
+  Format.set_margin 100;
+  let last_show = ref 0. in
   match
-  while true do
+  for i = 1 to 50000 do
+    let n = acc.nbits in
     Corpus.pqcycle acc q gens;
-      Printf.printf "%d %d %d\n%!" acc.ntests q.count acc.nbits;
+    if Unix.gettimeofday () > !last_show +. 0.4 then begin
+      Format.printf "@.\027[2J\027[H@[<v>%s %d %d %d@]@.%a@."
+        name acc.ntests q.count acc.nbits
+        Corpus.pqshow q;
+      last_show := Unix.gettimeofday ();
+    end;
+    (* Unix.sleepf 0.02; *)
   done
   with
   | () ->

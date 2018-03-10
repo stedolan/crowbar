@@ -26,7 +26,7 @@ let add_test ?name gens f =
 
 let () =
   at_exit (fun () ->
-      let t = !registered_tests in
+      let t = List.rev !registered_tests in
       registered_tests := [];
       t |> List.iter (fun (Test (name, _, _) as test) ->
         let ppf = Format.std_formatter in

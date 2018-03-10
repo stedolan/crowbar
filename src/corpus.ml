@@ -352,7 +352,11 @@ type psq_entry = {
   ntests : int;
   amount_fuzzed : int;
 
+  sample_location : string * string;
+
   samples : (unit -> unit) Gen.sample Queue.t;
+
+  mutable fuzzed_recently : bool; (* for UI only *)
 }
 
 let interest e =
@@ -378,7 +382,7 @@ let psq_take acc q =
      q.count <- q.count - 1;
      assert (bit = e.rarest_bit);
      let s = Queue.pop e.samples in
-     Printf.printf "%04x(%2d) %5d/%6d ~ %5d/%6d - %3d < %3d %d\n"
+     if false then Printf.printf "%04x(%2d) %5d/%6d ~ %5d/%6d - %3d < %3d %d\n"
        e.rarest_bit (Queue.length e.samples)
        e.occurrences e.ntests
        acc.counts.(e.rarest_bit) acc.ntests
@@ -389,7 +393,7 @@ let psq_take acc q =
        let e = { e with ntests = acc.ntests; occurrences = acc.counts.(bit) } in
        q.entries <- Psq.add bit e entries;
      end;
-     Some (bit, s)
+     Some (bit, s, interest e)
    end
 
 let psq_offer acc q bit s =
@@ -402,8 +406,11 @@ let psq_offer acc q bit s =
       | None -> { rarest_bit = bit;
                   occurrences = acc.counts.(bit);
                   ntests = acc.ntests;
+                  sample_location = (Instrumentation.capture_backtrace_for_bit bit (Gen.sample_val s));
                   samples = Queue.create ();
-                  amount_fuzzed = 0 }
+                  amount_fuzzed = 0;
+                  fuzzed_recently = false;
+                }
       | Some e -> 
          { e with ntests = acc.ntests; occurrences = acc.counts.(bit) } in
     (* FIXME: randomise *)
@@ -417,7 +424,7 @@ let psq_mark_fuzz q bit =
   match Psq.find bit q.entries with
   | None -> ()
   | Some e ->
-     q.entries <- Psq.add bit { e with amount_fuzzed = e.amount_fuzzed + 1 } q.entries
+     q.entries <- Psq.add bit { e with amount_fuzzed = e.amount_fuzzed + 1; fuzzed_recently = true } q.entries
 
 let psq_validate q =
   let count = ref q.count in
@@ -439,13 +446,42 @@ let pqcycle acc q gen =
   (* if Random.int 1000 = 0 then run_case (mk_sample gen) |> ignore; *)
   match psq_take acc q with
   | None -> run_case (mk_sample gen)
-  | Some (bit, s) ->
+  | Some (bit, s, interest) ->
      (* if Random.int 1 = 0 then Format.printf "%a@." Gen.pp_sample s; *)
-     let s' = (mutate_sample 30 s) in
+     let s' = (mutate_sample (90 - interest/100) s) in
 (*     Format.printf "%a@." Gen.pp_sample s';*)
      let interest_generated = run_case s' in
      let f = psq_offer acc q bit s in
      psq_mark_fuzz q bit;
      f
 
-     
+let pqshow ppf q =
+  let open Printers in
+  psq_validate q;
+  let entries = q.entries |> Psq.to_list |> List.map snd in
+  let rec take n xs = match n, xs with
+    | 0, _ -> []
+    | n, [] -> []
+    | n, x :: xs -> x :: take (n-1) xs in
+  let by_location = Hashtbl.create 20 in
+  let recent = Hashtbl.create 20 in
+  entries |> List.iter (fun e ->
+    if e.fuzzed_recently && not (Hashtbl.mem recent e.sample_location) then
+      Hashtbl.add recent e.sample_location ();
+    e.fuzzed_recently <- false;
+    if Hashtbl.mem by_location e.sample_location then
+      (if interest (Hashtbl.find by_location e.sample_location) > interest e then
+         Hashtbl.replace by_location e.sample_location e)
+    else
+      Hashtbl.add by_location e.sample_location e);
+  let flip (a, b) = (b, a) in
+  let entries = Hashtbl.fold (fun _ e es -> e :: es) by_location []
+                |> List.sort (fun e e' -> compare (interest e) (interest e'))
+                |> take 30
+                |> List.sort (fun e e' -> compare (flip e.sample_location) (flip e'.sample_location)) in
+  pp ppf "@[<v>";
+  let () =
+    entries |> List.iter (fun e ->
+      pp ppf "    %s%5d\027[0m %35s    %s@," (if Hashtbl.mem recent e.sample_location then "\027[32;1m" else "") (interest e) (fst e.sample_location) (snd e.sample_location)) in
+  pp ppf "@]";
+  ()
