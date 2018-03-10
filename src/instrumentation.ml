@@ -183,7 +183,7 @@ let baseaddr =
   let fd = Scanf.Scanning.from_file "/proc/self/maps" in
   let rec go () =
     match   
-      Scanf.bscanf fd "%Lx-%Lx %s %x %d:%d %d %s@\n"
+      Scanf.bscanf fd "%Lx-%Lx %s %x %x:%x %d %s@\n"
         (fun pstart pend mode _ _ _ _ file -> pstart, pend, mode, file)
     with
       pstart, pend, "r-xp", file when file = Sys.executable_name ->
