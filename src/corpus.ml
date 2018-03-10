@@ -60,21 +60,21 @@ let find_rarest_bit counts (b : Instrumentation.buf) =
 exception Fail of (unit -> unit) Gen.sample * exn * Printexc.raw_backtrace
 
 let mkbuf () =
-  let buf = Bytes.make 500 '\000' in
-  for i = 0 to Bytes.length buf - 1 do
+  let buf = Bytes.make 100 '\000' in
+  for i = 0 to 50 do
     Bytes.set buf i (Char.chr (Random.bits () land 0xff));
   done;
   Bytebuf.of_bytes buf
 
-let rec mutate_sample s =
+let rec mutate_sample rate s =
 (*  if Random.int 100 < 5 then
     (Gen.Fragment_Pool.add tbl s; Gen.splice tbl s)
   else *)
   let open Gen in
   match mutate s (Random.int (sample_len s)) (mkbuf ()) with
-  | exception Bad_test _ -> mutate_sample s
+  | exception Bad_test _ -> mutate_sample rate s
   | s' ->
-     if Random.int 100 < 10 then s' else mutate_sample s'
+     if Random.int 100 < rate then mutate_sample rate s' else s'
 
 (*
 let rec mutate_sample s =
@@ -158,7 +158,7 @@ let cycle ntests total_counts ({ generator; entries = prev_entries; best_sample 
       int_of_float integer + (if Random.float 1. < frac then 1 else 0) in
     Printf.printf "%04x(%2d) %4d/%d - %f %d\n" s.rarest_bit corpus.rarity_count.(s.rarest_bit) total_counts.(s.rarest_bit) !ntests prop count;
     for i = 1 to count do
-      run (mutate_sample s.sample)
+      run (mutate_sample 90 s.sample)
     done);
   run (mk_sample generator);
   add_counts total_counts counts;
@@ -333,7 +333,7 @@ let qcycle acc q gen =
       acc.counts.(e.rarest_bit) acc.ntests
       fcount count;
     for i = 1 to 1 + count do
-      run_case (mutate_sample e.sample)
+      run_case (mutate_sample 90 e.sample)
     done;
 
     let about_to_forget =
@@ -441,7 +441,9 @@ let pqcycle acc q gen =
   | None -> run_case (mk_sample gen)
   | Some (bit, s) ->
      (* if Random.int 1 = 0 then Format.printf "%a@." Gen.pp_sample s; *)
-     let interest_generated = run_case (mutate_sample s) in
+     let s' = (mutate_sample 30 s) in
+(*     Format.printf "%a@." Gen.pp_sample s';*)
+     let interest_generated = run_case s' in
      let f = psq_offer acc q bit s in
      psq_mark_fuzz q bit;
      f
