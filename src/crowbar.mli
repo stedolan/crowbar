@@ -123,6 +123,35 @@ val with_printer : 'a printer -> 'a gen -> 'a gen
     calling [check_eq] without [pp] set, [printer] will be used to print the
     failing test case. *)
 
+val dynamic_bind : 'a gen -> ('a -> 'b gen) -> 'b gen
+(** [dynamic_bind gen f] is a monadic bind, it allows to express the
+   generation of a value whose generator itself depends on
+   a previously generated value. This is in contrast with [map gen f],
+   where no further generation happens in [f] after [gen] has
+   generated an element.
+
+   An typical example where this sort of dependencies is required is
+   a serialization library exporting combinators letting you build
+   values of the form ['a serializer]. You may want to test this
+   library by first generating a pair of a serializer and generator
+   ['a serializer * 'a gen] for arbitrary ['a], and then generating
+   values of type ['a] depending on the (generated) generator to test
+   the serializer. There is such an example in the
+   [examples/serializer/] directory of the Crowbar implementation.
+
+   Because the structure of a generator built with [dynamic_bind] is
+   opaque/dynamic (it depends on generated values), the Crowbar
+   library cannot analyze its statically
+   (without generating anything) -- the generator is opaque to the
+   library, hidden in a function. In particular, many optimizations or
+   or fuzzing techniques based on generator analysis are
+   impossible. As a client of the library, you should avoid
+   [dynamic_bind] whenever it is not strictly required to express
+   a given generator, so that you can take advantage of these features
+   (present or future ones). Use the least powerful/complex
+   combinators that suffice for your needs.
+*)
+
 (** {1:printing Printing } *)
 
 (* Format.fprintf, renamed *)
