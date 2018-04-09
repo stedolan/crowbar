@@ -41,6 +41,12 @@ let list gen = List gen
 let list1 gen = List1 gen
 let with_printer pp gen = Print (pp, gen)
 
+let result gena genb =
+  Choose [
+    Map([gena], fun va -> Ok va);
+    Map([genb], fun vb -> Error vb);
+  ]
+
 
 let pp = Format.fprintf
 let pp_int ppf n = pp ppf "%d" n
