@@ -33,6 +33,14 @@ val uint8 : int gen
 val int8 : int gen
 (** [int8] generates a signed byte, ranging from -128 to 127 inclusive. *)
 
+val uint16 : int gen
+(** [uint16] generates an unsigned 16-bit integer,
+    ranging from 0 to 65535 inclusive. *)
+
+val int16 : int gen
+(** [int16] generates a signed 16-bit integer,
+    ranging from -32768 to 32767 inclusive. *)
+
 val int32 : Int32.t gen
 (** [int32] generates a 32-bit signed integer. *)
 
