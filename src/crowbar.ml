@@ -106,9 +106,21 @@ let read_bool src =
   let n = read_byte src in
   n land 1 = 1
 
-let uint8 = Print(pp_int, Primitive read_byte)
 let bool = Print(pp_bool, Primitive read_bool)
 
+let uint8 = Print(pp_int, Primitive read_byte)
+let int8 = Print(pp_int, Map ([uint8], fun n -> n - 128))
+
+let read_uint16 src =
+  let off = getbytes src 2 in
+  EndianBytes.LittleEndian.get_uint16 src.buf off
+
+let read_int16 src =
+  let off = getbytes src 2 in
+  EndianBytes.LittleEndian.get_int16 src.buf off
+
+let uint16 = Print(pp_int, Primitive read_uint16)
+let int16 = Print(pp_int, Primitive read_int16)
 
 let read_int32 src =
   let off = getbytes src 4 in
@@ -118,7 +130,6 @@ let read_int64 src =
   let off = getbytes src 8 in
   EndianBytes.LittleEndian.get_int64 src.buf off
 
-let int8 = Print(pp_int, Map ([uint8], fun n -> n - 128))
 let int32 = Print (pp_int32, Primitive read_int32)
 let int64 = Print (pp_int64, Primitive read_int64)
 
