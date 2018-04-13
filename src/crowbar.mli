@@ -60,7 +60,7 @@ val bool : bool gen
 (** [bool] generates a yes or no answer. *)
 
 val range : int -> int gen
-(** [range n] is a generator for integers between 0 (inclusive) and [n] (exclusive). 
+(** [range n] is a generator for integers between 0 (inclusive) and [n] (exclusive).
     [range n] will raise [Invalid_argument] for [n <= 0].
 *)
 
@@ -129,6 +129,10 @@ val list1 : 'a gen -> 'a list gen
 (** [list1 gen] makes non-empty list generators. For potentially empty lists,
     use {!list}.*)
 
+val concat_gen_list : 'a gen -> 'a gen list -> ('a -> 'a -> 'a) -> 'a gen
+(** [concat_gen_list sep l op] concatenates a list of 'a gen [l] inserting the
+    separator [sep] between each and using the concatenation fonction [op] *)
+
 val with_printer : 'a printer -> 'a gen -> 'a gen
 (** [with_printer printer gen] generates the same values as [gen].  If [gen]
     is used to create a failing test case and the test was reached by
@@ -192,7 +196,7 @@ val check_eq : ?pp:('a printer) -> ?cmp:('a -> 'a -> int) -> ?eq:('a -> 'a -> bo
     {- if no [eq] is provided, use a provided [cmp]}
     {- if neither [eq] nor [cmp] is provided, use Pervasives.compare}}
 
-    If [pp] is provided, use this to print [x] and [y] if they are not equal. 
+    If [pp] is provided, use this to print [x] and [y] if they are not equal.
     If [pp] is not provided, a best-effort printer will be generated from the
     printers for primitive generators and any printers registered with
     [with_printer] and used. *)

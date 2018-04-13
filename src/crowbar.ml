@@ -39,6 +39,12 @@ let choose gens = Choose gens
 let option gen = Option gen
 let list gen = List gen
 let list1 gen = List1 gen
+
+let concat_gen_list sep l op =
+  List.fold_left (fun acc e ->
+      map [acc; sep; e] (fun acc sep e -> op (op acc sep) e)
+  ) (List.hd l) l
+
 let with_printer pp gen = Print (pp, gen)
 
 let result gena genb =
@@ -476,7 +482,7 @@ let run_all_tests file verbosity infinity tests =
          let status =
            try run_test ~mode:(`Once state) ~silent:false ~verbose @@
              List.nth tests (choose_int (List.length tests) state)
-           with 
+           with
            BadTest s -> BadInput s
          in
          Unix.close fd;
