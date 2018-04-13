@@ -59,8 +59,9 @@ val bytes_fixed : int -> string gen
 val bool : bool gen
 (** [bool] generates a yes or no answer. *)
 
-val range : int -> int gen
-(** [range n] is a generator for integers between 0 (inclusive) and [n] (exclusive). 
+val range : ?min:int -> int -> int gen
+(** [range ?min n] is a generator for integers between [min] (inclusive)
+    and [min + n] (exclusive). Default min value is 0.
     [range n] will raise [Invalid_argument] for [n <= 0].
 *)
 
@@ -192,7 +193,7 @@ val check_eq : ?pp:('a printer) -> ?cmp:('a -> 'a -> int) -> ?eq:('a -> 'a -> bo
     {- if no [eq] is provided, use a provided [cmp]}
     {- if neither [eq] nor [cmp] is provided, use Pervasives.compare}}
 
-    If [pp] is provided, use this to print [x] and [y] if they are not equal. 
+    If [pp] is provided, use this to print [x] and [y] if they are not equal.
     If [pp] is not provided, a best-effort printer will be generated from the
     printers for primitive generators and any printers registered with
     [with_printer] and used. *)
