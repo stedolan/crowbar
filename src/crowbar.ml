@@ -171,24 +171,23 @@ let bytes_fixed n = Print (pp_string, Primitive (fun src ->
   let off = getbytes src n in
   Bytes.sub_string src.buf off n))
 
-let choose_int ?(min=0) n state =
+let choose_int n state =
   assert (n > 0);
-  assert (min >= 0);
   if n = 1 then
-    min
+    0
   else if (n < 100) then
-    min + read_byte state mod n
-  else if (min + n < 0x1000000) then
-    Int32.(min + to_int (abs (rem (read_int32 state) (of_int n))))
+    read_byte state mod n
+  else if (n < 0x1000000) then
+    Int32.(to_int (abs (rem (read_int32 state) (of_int n))))
   else
-    Int64.(min + to_int (abs (rem (read_int64 state) (of_int n))))
+    Int64.(to_int (abs (rem (read_int64 state) (of_int n))))
 
 let range ?(min=0) n =
   if n <= 0 then
     raise (Invalid_argument "Crowbar.range: argument n must be positive");
   if min < 0 then
     raise (Invalid_argument "Crowbar.range: argument min must be positive or null");
-  Print (pp_int, Primitive (choose_int ~min n))
+  Print (pp_int, Primitive (fun s -> min + choose_int n s))
 
 exception GenFailed of exn * Printexc.raw_backtrace * unit printer
 
