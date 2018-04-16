@@ -61,8 +61,8 @@ val bool : bool gen
 
 val range : ?min:int -> int -> int gen
 (** [range ?min n] is a generator for integers between [min] (inclusive)
-    and [min + n] (exclusive). Default min value is 0.
-    [range n] will raise [Invalid_argument] for [n <= 0].
+    and [min + n] (exclusive). Default [min] value is 0.
+    [range ?min n] will raise [Invalid_argument] for [n <= 0].
 *)
 
 (** {2:generator_functions Functions on Generators } *)
