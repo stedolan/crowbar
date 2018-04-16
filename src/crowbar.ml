@@ -40,10 +40,11 @@ let option gen = Option gen
 let list gen = List gen
 let list1 gen = List1 gen
 
-let concat_gen_list sep l op =
+let concat_gen_list sep l =
+  let first_e = try List.hd l with _ -> (const "") in
   List.fold_left (fun acc e ->
-      map [acc; sep; e] (fun acc sep e -> op (op acc sep) e)
-  ) (List.hd l) l
+      map [acc; sep; e] (fun acc sep e -> acc ^ sep ^ e)
+  ) first_e l
 
 let with_printer pp gen = Print (pp, gen)
 
