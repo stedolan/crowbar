@@ -189,10 +189,12 @@ let choose_int n state =
   else
     Int64.(to_int (abs (rem (read_int64 state) (of_int n))))
 
-let range n =
+let range ?(min=0) n =
   if n <= 0 then
-    raise (Invalid_argument "Crowbar.range: argument must be positive");
-  Print (pp_int, Primitive (choose_int n))
+    raise (Invalid_argument "Crowbar.range: argument n must be positive");
+  if min < 0 then
+    raise (Invalid_argument "Crowbar.range: argument min must be positive or null");
+  Print (pp_int, Primitive (fun s -> min + choose_int n s))
 
 exception GenFailed of exn * Printexc.raw_backtrace * unit printer
 

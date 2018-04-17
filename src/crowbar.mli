@@ -59,9 +59,10 @@ val bytes_fixed : int -> string gen
 val bool : bool gen
 (** [bool] generates a yes or no answer. *)
 
-val range : int -> int gen
-(** [range n] is a generator for integers between 0 (inclusive) and [n] (exclusive).
-    [range n] will raise [Invalid_argument] for [n <= 0].
+val range : ?min:int -> int -> int gen
+(** [range ?min n] is a generator for integers between [min] (inclusive)
+    and [min + n] (exclusive). Default [min] value is 0.
+    [range ?min n] will raise [Invalid_argument] for [n <= 0].
 *)
 
 (** {2:generator_functions Functions on Generators } *)
