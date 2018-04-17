@@ -130,6 +130,10 @@ val list1 : 'a gen -> 'a list gen
 (** [list1 gen] makes non-empty list generators. For potentially empty lists,
     use {!list}.*)
 
+val concat_gen_list : string gen -> string gen list -> string gen
+(** [concat_gen_list sep l] concatenates a list of string gen [l] inserting the
+    separator [sep] between each *)
+
 val with_printer : 'a printer -> 'a gen -> 'a gen
 (** [with_printer printer gen] generates the same values as [gen].  If [gen]
     is used to create a failing test case and the test was reached by
