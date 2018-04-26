@@ -41,10 +41,11 @@ let list gen = List gen
 let list1 gen = List1 gen
 
 let concat_gen_list sep l =
-  let first_e = try List.hd l with _ -> (const "") in
-  List.fold_left (fun acc e ->
+  match l with
+  | h::t -> List.fold_left (fun acc e ->
       map [acc; sep; e] (fun acc sep e -> acc ^ sep ^ e)
-  ) first_e l
+    ) h t
+  | [] -> const ""
 
 let with_printer pp gen = Print (pp, gen)
 
