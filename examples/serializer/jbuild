@@ -1,0 +1,11 @@
+(jbuild_version 1)
+
+(executable
+ ((name test_serializer)
+  (libraries (crowbar))
+))
+
+(alias
+ ((name runtest)
+  (action (run ${exe:test_serializer.exe}))
+))

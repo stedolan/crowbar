@@ -9,11 +9,11 @@ type state =
 
 type 'a printer = Format.formatter -> 'a -> unit
 
-
 type 'a gen =
   | Const of 'a
   | Choose of 'a gen list
   | Map : ('f, 'a) gens * 'f -> 'a gen
+  | Bind : 'a gen * ('a -> 'b gen) -> 'b gen
   | Option : 'a gen -> 'a option gen
   | List : 'a gen -> 'a list gen
   | List1 : 'a gen -> 'a list gen
@@ -33,6 +33,8 @@ let fix f =
   unlazy lazygen
 
 let map gens f = Map (gens, f)
+
+let dynamic_bind m f = Bind(m, f)
 
 let const x = map [] x
 let choose gens = Choose gens
@@ -200,12 +202,12 @@ let range ?(min=0) n =
 exception GenFailed of exn * Printexc.raw_backtrace * unit printer
 
 let minimize_depth : type a . a gen list -> a gen list = fun gens ->
-  let only_branchless = List.filter (function
-      | Const _ -> true | _ -> false) gens in
-  let without_branchy = List.filter (function Map _ | Choose _ -> false
-                                            | _ -> true) gens in
-  let without_maps = List.filter (function Map _ -> false | _ -> true) gens in
-  match only_branchless, without_branchy, without_maps with
+  let only p = List.filter p gens in
+  let without p = List.filter (fun v -> not (p v)) gens in
+  let branchless = function | Const _ -> true | _ -> false in
+  let branchy = function | Map _ | Bind _ | Choose _ -> true | _ -> false in
+  let complex = function | Map _ | Bind _ -> true | _ -> false in
+  match only branchless, without branchy, without complex with
   | x::xs, _    , _     -> x :: xs
   | [],    x::xs, _     -> x :: xs
   | [],    [],    x::xs -> x :: xs
@@ -241,6 +243,10 @@ let rec generate : type a . int -> state -> a gen -> a * unit printer =
        | Ok v -> v, pvs
        | Error (e, bt) -> raise (GenFailed (e, bt, pvs))
      end
+  | Bind (m, f) ->
+     let index, pv_index = generate (size - 1) input m in
+     let a, pv = generate (size - 1) input (f index) in
+     a, (fun ppf () -> pp ppf "(%a) => %a" pv_index () pv ())
   | Option gen ->
      if size < 1 then
        None, fun ppf () -> pp ppf "None"
