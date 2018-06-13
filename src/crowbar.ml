@@ -68,6 +68,11 @@ let pp_string ppf s = pp ppf "\"%s\"" (String.escaped s)
 let pp_list pv ppf l =
   pp ppf "@[<hv 1>[%a]@]"
      (Format.pp_print_list ~pp_sep:(fun ppf () -> pp ppf ";@ ") pv) l
+let pp_option pv ppf = function
+  | None ->
+      Format.fprintf ppf "None"
+  | Some x ->
+      Format.fprintf ppf "(Some %a)" pv x
 
 exception BadTest of string
 exception FailedTest of unit printer

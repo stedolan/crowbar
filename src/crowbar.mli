@@ -180,6 +180,7 @@ val pp_float : float printer
 val pp_bool : bool printer
 val pp_string : string printer
 val pp_list : 'a printer -> 'a list printer
+val pp_option : 'a printer -> 'a option printer
 
 (** {1:testing Testing} *)
 
