@@ -319,7 +319,7 @@ and gen_apply :
   v, pvs
 
 
-let fail s = raise (FailedTest (fun ppf () -> pp_string ppf s))
+let fail s = raise (FailedTest (fun ppf () -> pp ppf "%s" s))
 
 let failf format =
   Format.kasprintf fail format
