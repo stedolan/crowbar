@@ -321,6 +321,9 @@ and gen_apply :
 
 let fail s = raise (FailedTest (fun ppf () -> pp_string ppf s))
 
+let failf format =
+  Format.kasprintf fail format
+
 let check = function
   | true -> ()
   | false -> raise (FailedTest (fun ppf () -> pp ppf "check false"))
