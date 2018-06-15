@@ -180,6 +180,7 @@ val pp_float : float printer
 val pp_bool : bool printer
 val pp_string : string printer
 val pp_list : 'a printer -> 'a list printer
+val pp_option : 'a printer -> 'a option printer
 
 (** {1:testing Testing} *)
 
@@ -208,6 +209,11 @@ val nonetheless : 'a option -> 'a
 
 val fail : string -> 'a
 (** [fail message] generates a test failure and prints [message]. *)
+
+val failf : ('a, Format.formatter, unit, _) format4 -> 'a
+(** [failf format ...] generates a test failure and prints the message
+    specified by the format string [format] and the following arguments.
+    It is set up so that [%a] calls for an ['a printer] and an ['a] value. *)
 
 (** {2:asserting Asserting Properties} *)
 
