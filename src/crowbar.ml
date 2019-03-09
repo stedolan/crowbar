@@ -42,6 +42,9 @@ let option gen = Option gen
 let list gen = List gen
 let list1 gen = List1 gen
 
+let pair gena genb =
+  map (gena :: genb :: []) (fun a b -> (a, b))
+
 let concat_gen_list sep l =
   match l with
   | h::t -> List.fold_left (fun acc e ->
