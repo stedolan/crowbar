@@ -1,25 +1,33 @@
-opam-version: "1.2"
+opam-version: "2.0"
 maintainer: "stephen.dolan@cl.cam.ac.uk"
 authors: ["Stephen Dolan"]
 homepage: "https://github.com/stedolan/crowbar"
 bug-reports: "https://github.com/stedolan/crowbar/issues"
-dev-repo: "https://github.com/stedolan/crowbar.git"
+dev-repo: "git+https://github.com/stedolan/crowbar.git"
 license: "MIT"
-build:
-[[ "dune" "build" "-p" name "-j" jobs ]]
-build-test:
-[[ "dune" "build" "-p" name "-j" jobs ]]
-available: [ ocaml-version >= "4.02" ]
+build: [
+  [ "dune" "build" "-p" name "-j" jobs ]
+]
+run-test: [
+  [ "dune" "runtest" "-p" name "-j" jobs ]
+]
 depends: [
   "dune" {build & >= "1.1"}
+  "ocaml" {>= "4.02.0"}
   "ocplib-endian"
   "cmdliner"
   "afl-persistent" {>= "1.1"}
-  "calendar" {test}
-  "xmldiff" {test}
-  "fpath" {test}
-  "pprint" {test & < "20180528"}
-  "uucp" {test}
-  "uunf" {test}
-  "uutf" {test}
+  "calendar" {with-test}
+  "xmldiff" {with-test}
+  "fpath" {with-test}
+  "pprint" {with-test & < "20180528"}
+  "uucp" {with-test}
+  "uunf" {with-test}
+  "uutf" {with-test}
 ]
+synopsis: "Write tests, let a fuzzer find failing cases"
+description: """
+Crowbar is a library for testing code, combining QuickCheck-style
+property-based testing and the magical bug-finding powers of
+[afl-fuzz](http://lcamtuf.coredump.cx/afl/).
+"""
