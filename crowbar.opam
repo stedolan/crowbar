@@ -18,6 +18,7 @@ depends: [
   "calendar" {test}
   "xmldiff" {test}
   "fpath" {test}
+  "pprint" {test & < "20180528"}
   "uucp" {test}
   "uunf" {test}
   "uutf" {test}
