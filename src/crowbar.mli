@@ -134,6 +134,9 @@ val list1 : 'a gen -> 'a list gen
 (** [list1 gen] makes non-empty list generators. For potentially empty lists,
     use {!list}.*)
 
+val shuffle : 'a list -> 'a list gen
+(** [shuffle l] generates random permutations of [l] using the Fisher-Yates algorithm *)
+
 val concat_gen_list : string gen -> string gen list -> string gen
 (** [concat_gen_list sep l] concatenates a list of string gen [l] inserting the
     separator [sep] between each *)
