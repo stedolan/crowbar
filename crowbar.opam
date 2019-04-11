@@ -6,12 +6,12 @@ bug-reports: "https://github.com/stedolan/crowbar/issues"
 dev-repo: "https://github.com/stedolan/crowbar.git"
 license: "MIT"
 build:
-[[ "jbuilder" "build" "--only-packages" name "--root" "." "-j" jobs "@install" ]]
+[[ "dune" "build" "-p" name "-j" jobs ]]
 build-test:
-[[ "jbuilder" "build" "--only-packages" name "--root" "." "-j" jobs "@runtest" ]]
+[[ "dune" "build" "-p" name "-j" jobs ]]
 available: [ ocaml-version >= "4.02" ]
 depends: [
-  "jbuilder" {build}
+  "dune" {build & >= "1.1"}
   "ocplib-endian"
   "cmdliner"
   "afl-persistent" {>= "1.1"}

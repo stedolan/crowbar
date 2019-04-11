@@ -1,6 +1,0 @@
-(jbuild_version 1)
-
-(library
- ((name crowbar)
-  (public_name crowbar)
-  (libraries (cmdliner ocplib-endian afl-persistent str))))
