@@ -10,7 +10,6 @@ type state =
 type 'a printer = Format.formatter -> 'a -> unit
 
 type 'a gen =
-  | Const of 'a
   | Choose of 'a gen list
   | Map : ('f, 'a) gens * 'f -> 'a gen
   | Bind : 'a gen * ('a -> 'b gen) -> 'b gen
@@ -212,7 +211,7 @@ exception GenFailed of exn * Printexc.raw_backtrace * unit printer
 let minimize_depth : type a . a gen list -> a gen list = fun gens ->
   let only p = List.filter p gens in
   let without p = List.filter (fun v -> not (p v)) gens in
-  let branchless = function | Const _ -> true | _ -> false in
+  let branchless = function | _ -> false in
   let branchy = function | Map _ | Bind _ | Choose _ -> true | _ -> false in
   let complex = function | Map _ | Bind _ -> true | _ -> false in
   match only branchless, without branchy, without complex with
@@ -223,8 +222,6 @@ let minimize_depth : type a . a gen list -> a gen list = fun gens ->
 
 let rec generate : type a . int -> state -> a gen -> a * unit printer =
   fun size input gen -> match gen with
-  | Const k ->
-     k, fun ppf () -> pp ppf "?"
   | Choose xs ->
      (* FIXME: better distribution? *)
      (* FIXME: choices of size > 255? *)
