@@ -1,0 +1,3 @@
+(library
+ (public_name crowbar)
+ (libraries cmdliner ocplib-endian afl-persistent str))

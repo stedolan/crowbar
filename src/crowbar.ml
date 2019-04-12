@@ -266,17 +266,17 @@ let rec generate : type a . int -> state -> a gen -> a * unit printer =
   | List gen ->
      let elems = generate_list size input gen in
      List.map fst elems,
-       fun ppf () -> pp_list (fun ppf (v, pv) -> pv ppf ()) ppf elems
+       fun ppf () -> pp_list (fun ppf (_, pv) -> pv ppf ()) ppf elems
   | List1 gen ->
      let elems = generate_list1 size input gen in
      List.map fst elems,
-       fun ppf () -> pp_list (fun ppf (v, pv) -> pv ppf ()) ppf elems
+       fun ppf () -> pp_list (fun ppf (_, pv) -> pv ppf ()) ppf elems
   | Primitive gen ->
      gen input, fun ppf () -> pp ppf "?"
   | Unlazy gen ->
      generate size input (Lazy.force gen)
   | Print (ppv, gen) ->
-     let v, pv = generate size input gen in
+     let v, _ = generate size input gen in
      v, fun ppf () -> ppv ppf v
 
 and generate_list : type a . int -> state -> a gen -> (a * unit printer) list =
@@ -359,7 +359,7 @@ type test_status =
 let run_once (gens : (_, unit) gens) f state =
   match gen_apply 100 state gens f with
   | Ok (), pvs -> TestPass pvs
-  | Error (FailedTest p, bt), pvs -> TestFail (p, pvs)
+  | Error (FailedTest p, _), pvs -> TestFail (p, pvs)
   | Error (e, bt), pvs -> TestExn (e, bt, pvs)
   | exception (BadTest s) -> BadInput s
   | exception (GenFailed (e, bt, pvs)) -> GenFail (e, bt, pvs)
@@ -425,7 +425,7 @@ let run_test ~mode ~silent ?(verbose=false) (Test (name, gens, f)) =
   | `Once state ->
      run_once gens f state
   | `Repeat iters ->
-     let worst_status = ref (TestPass (fun ppf () -> ())) in
+     let worst_status = ref (TestPass (fun _ () -> ())) in
      let npass = ref 0 in
      let nbad = ref 0 in
      while !npass < iters && classify_status !worst_status = `Pass do
