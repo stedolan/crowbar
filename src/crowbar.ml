@@ -206,6 +206,27 @@ let range ?(min=0) n =
     raise (Invalid_argument "Crowbar.range: argument min must be positive or null");
   Print (pp_int, Primitive (fun s -> min + choose_int n s))
 
+let shuffle l =
+  match l with
+  | []
+  | [_] -> const l
+  | [a; b] -> Choose [const [b; a]; const [a; b]]
+  | _ ->
+    let state = Array.of_list l in
+    let length = Array.length state in
+    let swap i j =
+      let tmp = state.(i) in
+      state.(i) <- state.(j);
+      state.(j) <- tmp
+    in
+    let rec gen i =
+      if i = 0 then
+        const (Array.to_list state)
+      else
+        dynamic_bind (range (i + 1)) (fun j -> swap i j; gen (i - 1))
+    in
+    gen (length - 1) 
+
 exception GenFailed of exn * Printexc.raw_backtrace * unit printer
 
 let minimize_depth : type a . a gen list -> a gen list = fun gens ->
