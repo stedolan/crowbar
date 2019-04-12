@@ -215,26 +215,19 @@ let uchar : Uchar.t gen =
     guard (Uchar.is_valid x); Uchar.of_int x)
 let uchar = Print(pp_uchar, uchar)
 
-let shuffle l =
-  match l with
-  | []
-  | [_] -> const l
-  | [a; b] -> Choose [const [b; a]; const [a; b]]
-  | _ ->
-    let state = Array.of_list l in
-    let length = Array.length state in
-    let swap i j =
-      let tmp = state.(i) in
-      state.(i) <- state.(j);
-      state.(j) <- tmp
-    in
-    let rec gen i =
-      if i = 0 then
-        const (Array.to_list state)
-      else
-        dynamic_bind (range (i + 1)) (fun j -> swap i j; gen (i - 1))
-    in
-    gen (length - 1)
+let rec sequence = function
+  g::gs -> map [g; sequence gs] (fun x xs -> x::xs)
+| [] -> const []
+
+let shuffle_arr arr =
+  let n = Array.length arr in
+  let gs = List.init n (fun i -> range ~min:i (n - i)) in
+  map [sequence gs] @@ fun js ->
+    js |> List.iteri (fun i j ->
+      let t = arr.(i) in arr.(i) <- arr.(j); arr.(j) <- t);
+    arr
+
+let shuffle l = map [shuffle_arr (Array.of_list l)] Array.to_list
 
 exception GenFailed of exn * Printexc.raw_backtrace * unit printer
 

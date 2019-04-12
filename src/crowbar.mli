@@ -141,7 +141,7 @@ val list1 : 'a gen -> 'a list gen
     use {!list}.*)
 
 val shuffle : 'a list -> 'a list gen
-(** [shuffle l] generates random permutations of [l] using the Fisher-Yates algorithm *)
+(** [shuffle l] generates random permutations of [l]. *)
 
 val concat_gen_list : string gen -> string gen list -> string gen
 (** [concat_gen_list sep l] concatenates a list of string gen [l] inserting the
