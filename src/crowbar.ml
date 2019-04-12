@@ -393,14 +393,6 @@ let print_status ppf status =
         pvs ()
         err ()
 
-type mode =
-  (* run whichever test this file says to run *)
-  | File of string
-  (* run tests once using a particular seed *)
-  | Seeded of Int64.t
-  (* run tests a few times with random seeds and log failures *)
-  | Quick of int
-
 let src_of_seed seed =
   (* try to make this independent of word size *)
   let seed = Int64.( [|
