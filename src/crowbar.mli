@@ -50,6 +50,9 @@ val int64 : Int64.t gen
 val float : float gen
 (** [float] generates a double-precision floating-point number. *)
 
+val char : char gen
+(** [char] generates a char. *)
+
 val bytes : string gen
 (** [bytes] generates a string of arbitrary length (including zero-length strings).  *)
 
