@@ -66,6 +66,7 @@ let pp_int32 ppf n = pp ppf "%s" (Int32.to_string n)
 let pp_int64 ppf n = pp ppf "%s" (Int64.to_string n)
 let pp_float ppf f = pp ppf "%f" f
 let pp_bool ppf b = pp ppf "%b" b
+let pp_char ppf c = pp ppf "%c" c
 let pp_string ppf s = pp ppf "\"%s\"" (String.escaped s)
 let pp_list pv ppf l =
   pp ppf "@[<hv 1>[%a]@]"
@@ -167,6 +168,8 @@ let float = Print (pp_float, Primitive (fun src ->
   let off = getbytes src 8 in
   EndianBytes.LittleEndian.get_double src.buf off))
 
+let char = Print (pp_char, Primitive read_char)
+
 (* maybe print as a hexdump? *)
 let bytes = Print (pp_string, Primitive (fun src ->
   (* null-terminated, with '\001' as an escape code *)
@@ -225,7 +228,7 @@ let shuffle l =
       else
         dynamic_bind (range (i + 1)) (fun j -> swap i j; gen (i - 1))
     in
-    gen (length - 1) 
+    gen (length - 1)
 
 exception GenFailed of exn * Printexc.raw_backtrace * unit printer
 
