@@ -19,14 +19,14 @@ Some brief hints:
 
 To test your software, come up with a property you'd like to test, then decide on the input you'd like for Crowbar to vary.  A Crowbar test is some invocation of `Crowbar.check_eq` or `Crowbar.check`:
 
-```
+```ocaml
 let identity x =
   Crowbar.check_eq x x
 ```
 
 and instructions for running the test with generated items with `Crowbar.add_test`:
 
-```
+```ocaml
 let () =
   Crowbar.(add_test ~name:"identity function" [int] (fun i -> identity i))
 ```
@@ -39,7 +39,7 @@ Include `crowbar` in your list of dependencies via your favorite build system.  
 
 To build tests that run under AFL, you'll need to build your tests with a compiler that has AFL instrumentation enabled.  (You can also enable it specifically for your build, although this is not recommended if your code has any dependencies, including the OCaml standard library).  OCaml compiler variants with AFL enabled by default are available in `opam` with the `+afl` tag.  All versions published starting with 4.05.0 are available, along with a backported 4.04.0.
 
-```
+```shell
 $ opam switch 4.06.0+afl
 $ eval `opam config env`
 $ ./build_my_rad_test.sh # or your relevant build runes
