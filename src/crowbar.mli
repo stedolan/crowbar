@@ -240,7 +240,7 @@ val check_eq : ?pp:('a printer) -> ?cmp:('a -> 'a -> int) -> ?eq:('a -> 'a -> bo
     {ol
     {- use a provided [eq]}
     {- if no [eq] is provided, use a provided [cmp]}
-    {- if neither [eq] nor [cmp] is provided, use Pervasives.compare}}
+    {- if neither [eq] nor [cmp] is provided, use Stdlib.compare}}
 
     If [pp] is provided, use this to print [x] and [y] if they are not equal.
     If [pp] is not provided, a best-effort printer will be generated from the
