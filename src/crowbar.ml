@@ -67,6 +67,7 @@ let pp_int64 ppf n = pp ppf "%s" (Int64.to_string n)
 let pp_float ppf f = pp ppf "%f" f
 let pp_bool ppf b = pp ppf "%b" b
 let pp_char ppf c = pp ppf "%c" c
+let pp_uchar ppf c = pp ppf "U+%04x" (Uchar.to_int c)
 let pp_string ppf s = pp ppf "\"%s\"" (String.escaped s)
 let pp_list pv ppf l =
   pp ppf "@[<hv 1>[%a]@]"
@@ -208,6 +209,11 @@ let range ?(min=0) n =
   if min < 0 then
     raise (Invalid_argument "Crowbar.range: argument min must be positive or null");
   Print (pp_int, Primitive (fun s -> min + choose_int n s))
+
+let uchar : Uchar.t gen =
+  map [range 0x110000] (fun x ->
+    guard (Uchar.is_valid x); Uchar.of_int x)
+let uchar = Print(pp_uchar, uchar)
 
 let shuffle l =
   match l with

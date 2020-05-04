@@ -53,6 +53,9 @@ val float : float gen
 val char : char gen
 (** [char] generates a char. *)
 
+val uchar : Uchar.t gen
+(** [uchar] generates a Unicode scalar value *)
+
 val bytes : string gen
 (** [bytes] generates a string of arbitrary length (including zero-length strings).  *)
 
