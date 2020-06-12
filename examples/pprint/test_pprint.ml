@@ -1,9 +1,9 @@
-open Crowbar
 open PPrint
+open Crowbar
 type t = (string * PPrint.document)
 let doc = fix (fun doc -> choose [
   const ("", empty);
-  const ("a", char 'a');
+  const ("a", PPrint.char 'a');
   const ("123", string "123");
   const ("Hello", string "Hello");
   const ("awordwhichisalittlebittoolong",

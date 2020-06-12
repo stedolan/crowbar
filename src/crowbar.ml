@@ -9,37 +9,44 @@ type state =
 
 type 'a printer = Format.formatter -> 'a -> unit
 
-type 'a gen =
+type 'a strat =
   | Choose of 'a gen list
-  | Map : ('f, 'a) gens * 'f -> 'a gen
-  | Bind : 'a gen * ('a -> 'b gen) -> 'b gen
-  | Option : 'a gen -> 'a option gen
-  | List : 'a gen -> 'a list gen
-  | List1 : 'a gen -> 'a list gen
+  | Map : ('f, 'a) gens * 'f -> 'a strat
+  | Bind : 'a gen * ('a -> 'b gen) -> 'b strat
+  | Option : 'a gen -> 'a option strat
+  | List : 'a gen -> 'a list strat
+  | List1 : 'a gen -> 'a list strat
   | Unlazy of 'a gen Lazy.t
   | Primitive of (state -> 'a)
   | Print of 'a printer * 'a gen
+
+and 'a gen =
+  { strategy: 'a strat;
+    small_examples: 'a list; }
+
 and ('k, 'res) gens =
   | [] : ('res, 'res) gens
   | (::) : 'a gen * ('k, 'res) gens -> ('a -> 'k, 'res) gens
 
 type nonrec +'a list = 'a list = [] | (::) of 'a * 'a list
 
-let unlazy f = Unlazy f
+let unlazy f = { strategy = Unlazy f; small_examples = [] }
 
 let fix f =
   let rec lazygen = lazy (f (unlazy lazygen)) in
   unlazy lazygen
 
-let map gens f = Map (gens, f)
+let map (type f) (type a) (gens : (f, a) gens) (f : f) =
+  { strategy = Map (gens, f); small_examples = match gens with [] -> [f] | _ -> [] }
 
-let dynamic_bind m f = Bind(m, f)
+let dynamic_bind m f = {strategy = Bind(m, f); small_examples = [] }
 
 let const x = map [] x
-let choose gens = Choose gens
-let option gen = Option gen
-let list gen = List gen
-let list1 gen = List1 gen
+let choose gens = { strategy = Choose gens; small_examples = List.concat_map (fun x -> x.small_examples) gens }
+let option gen = { strategy = Option gen; small_examples = [None] }
+let list gen = { strategy = List gen; small_examples = [[]] }
+let list1 gen = { strategy = List1 gen; small_examples = List.map (fun x -> [x]) gen.small_examples }
+let primitive f ex = { strategy = Primitive f; small_examples = [ex] }
 
 let pair gena genb =
   map (gena :: genb :: []) (fun a b -> (a, b))
@@ -51,12 +58,12 @@ let concat_gen_list sep l =
     ) h t
   | [] -> const ""
 
-let with_printer pp gen = Print (pp, gen)
+let with_printer pp gen = {strategy = Print (pp, gen); small_examples = gen.small_examples }
 
 let result gena genb =
-  Choose [
-    Map([gena], fun va -> Ok va);
-    Map([genb], fun vb -> Error vb);
+  choose [
+    map [gena] (fun va -> Ok va);
+    map [genb] (fun vb -> Error vb);
   ]
 
 
@@ -131,10 +138,10 @@ let read_bool src =
   let n = read_byte src in
   n land 1 = 1
 
-let bool = Print(pp_bool, Primitive read_bool)
+let bool = with_printer pp_bool (primitive read_bool false)
 
-let uint8 = Print(pp_int, Primitive read_byte)
-let int8 = Print(pp_int, Map ([uint8], fun n -> n - 128))
+let uint8 = with_printer pp_int (primitive read_byte 0)
+let int8 = with_printer pp_int (map [uint8] (fun n -> n - 128))
 
 let read_uint16 src =
   let off = getbytes src 2 in
@@ -144,8 +151,8 @@ let read_int16 src =
   let off = getbytes src 2 in
   EndianBytes.LittleEndian.get_int16 src.buf off
 
-let uint16 = Print(pp_int, Primitive read_uint16)
-let int16 = Print(pp_int, Primitive read_int16)
+let uint16 = with_printer pp_int (primitive read_uint16 0)
+let int16 = with_printer pp_int (primitive read_int16 0)
 
 let read_int32 src =
   let off = getbytes src 4 in
@@ -155,24 +162,24 @@ let read_int64 src =
   let off = getbytes src 8 in
   EndianBytes.LittleEndian.get_int64 src.buf off
 
-let int32 = Print (pp_int32, Primitive read_int32)
-let int64 = Print (pp_int64, Primitive read_int64)
+let int32 = with_printer pp_int32 (primitive read_int32 0l)
+let int64 = with_printer pp_int64 (primitive read_int64 0L)
 
 let int =
-  Print (pp_int,
-    if Sys.word_size <= 32 then
-      Map([int32], Int32.to_int)
+  with_printer pp_int
+    (if Sys.word_size <= 32 then
+      map [int32] Int32.to_int
     else
-      Map([int64], Int64.to_int))
+      map [int64] Int64.to_int)
 
-let float = Print (pp_float, Primitive (fun src ->
+let float = with_printer pp_float (primitive (fun src ->
   let off = getbytes src 8 in
-  EndianBytes.LittleEndian.get_double src.buf off))
+  EndianBytes.LittleEndian.get_double src.buf off) 0.)
 
-let char = Print (pp_char, Primitive read_char)
+let char = with_printer pp_char (primitive read_char 'a')
 
 (* maybe print as a hexdump? *)
-let bytes = Print (pp_string, Primitive (fun src ->
+let bytes = with_printer pp_string (primitive (fun src ->
   (* null-terminated, with '\001' as an escape code *)
   let buf = Bytes.make 64 '\255' in
   let rec read_bytes p =
@@ -186,11 +193,11 @@ let bytes = Print (pp_string, Primitive (fun src ->
        Bytes.set buf p c;
        read_bytes (p + 1) in
   let count = read_bytes 0 in
-  Bytes.sub_string buf 0 count))
+  Bytes.sub_string buf 0 count) "")
 
-let bytes_fixed n = Print (pp_string, Primitive (fun src ->
+let bytes_fixed n = with_printer pp_string (primitive (fun src ->
   let off = getbytes src n in
-  Bytes.sub_string src.buf off n))
+  Bytes.sub_string src.buf off n) (String.make n 'a'))
 
 let choose_int n state =
   assert (n > 0);
@@ -208,12 +215,12 @@ let range ?(min=0) n =
     raise (Invalid_argument "Crowbar.range: argument n must be positive");
   if min < 0 then
     raise (Invalid_argument "Crowbar.range: argument min must be positive or null");
-  Print (pp_int, Primitive (fun s -> min + choose_int n s))
+  with_printer pp_int (primitive (fun s -> min + choose_int n s) min)
 
 let uchar : Uchar.t gen =
   map [range 0x110000] (fun x ->
     guard (Uchar.is_valid x); Uchar.of_int x)
-let uchar = Print(pp_uchar, uchar)
+let uchar = with_printer pp_uchar uchar
 
 let rec sequence = function
   g::gs -> map [g; sequence gs] (fun x xs -> x::xs)
@@ -231,24 +238,13 @@ let shuffle l = map [shuffle_arr (Array.of_list l)] Array.to_list
 
 exception GenFailed of exn * Printexc.raw_backtrace * unit printer
 
-let minimize_depth : type a . a gen list -> a gen list = fun gens ->
-  let only p = List.filter p gens in
-  let without p = List.filter (fun v -> not (p v)) gens in
-  let branchless = function | _ -> false in
-  let branchy = function | Map _ | Bind _ | Choose _ -> true | _ -> false in
-  let complex = function | Map _ | Bind _ -> true | _ -> false in
-  match only branchless, without branchy, without complex with
-  | x::xs, _    , _     -> x :: xs
-  | [],    x::xs, _     -> x :: xs
-  | [],    [],    x::xs -> x :: xs
-  | [],    [],    []    -> gens
-
 let rec generate : type a . int -> state -> a gen -> a * unit printer =
-  fun size input gen -> match gen with
-  | Choose xs ->
+  fun size input gen ->
+  if size <= 1 && gen.small_examples <> [] then List.hd gen.small_examples, fun ppf () -> pp ppf "?" else
+  match gen.strategy with
+  | Choose gens ->
      (* FIXME: better distribution? *)
      (* FIXME: choices of size > 255? *)
-     let gens = if size <= 1 then minimize_depth xs else xs in
      let n = choose_int (List.length gens) input in
      let v, pv = generate size input (List.nth gens n) in
      v, fun ppf () -> pp ppf "#%d %a" n pv ()
