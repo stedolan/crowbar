@@ -42,7 +42,7 @@ let map (type f) (type a) (gens : (f, a) gens) (f : f) =
 let dynamic_bind m f = {strategy = Bind(m, f); small_examples = [] }
 
 let const x = map [] x
-let choose gens = { strategy = Choose gens; small_examples = List.concat_map (fun x -> x.small_examples) gens }
+let choose gens = { strategy = Choose gens; small_examples = Stdlib.List.concat_map (fun x -> x.small_examples) gens }
 let option gen = { strategy = Option gen; small_examples = [None] }
 let list gen = { strategy = List gen; small_examples = [[]] }
 let list1 gen = { strategy = List1 gen; small_examples = List.map (fun x -> [x]) gen.small_examples }
