@@ -354,7 +354,7 @@ let check_eq ?pp:pv ?cmp ?eq a b =
     | Some eq, _ -> eq a b
     | None, Some cmp -> cmp a b = 0
     | None, None ->
-       Pervasives.compare a b = 0 in
+       Stdlib.compare a b = 0 in
   if pass then
     ()
   else
