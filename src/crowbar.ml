@@ -479,7 +479,7 @@ let run_test ~mode ~silent ?(verbose=false) (Test (name, gens, f)) =
   status
 
 exception TestFailure
-let run_all_tests seed file verbosity infinity tests =
+let run_all_tests seed repeat file verbosity infinity tests =
   match file with
   | None ->
     let seed = match seed with
@@ -504,7 +504,7 @@ let run_all_tests seed file verbosity infinity tests =
       (* limited-run QuickCheck mode *)
       let failures = ref 0 in
       let () = tests |> List.iter (fun t ->
-          match (run_test ~mode:(`Repeat (5000, seed)) ~silent:false t |> classify_status) with
+          match (run_test ~mode:(`Repeat (repeat, seed)) ~silent:false t |> classify_status) with
           | `Fail -> failures := !failures + 1
           | _ -> ()
         )
@@ -563,6 +563,10 @@ let seed =
     when running in non-AFL (quickcheck) mode." in
   Cmdliner.Arg.(value & opt (some int64) None & info ["s"; "seed"] ~doc ~docv:"SEED")
 
+let repeat =
+  let doc = "The number of times to repeat the test in quick-check." in
+  Cmdliner.Arg.(value & opt int 5000 & info ["r"; "repeat"] ~doc ~docv:"REPEAT")
+
 let verbosity =
   let doc = "Print information on each test as it's conducted." in
   Cmdliner.Arg.(value & flag_all & info ["v"; "verbose"] ~doc ~docv:"VERBOSE")
@@ -583,7 +587,7 @@ let () =
       match t with
       | [] -> ()
       | t ->
-        let cmd = Cmdliner.Term.(const run_all_tests $ seed $ randomness_file $ verbosity $
+        let cmd = Cmdliner.Term.(const run_all_tests $ seed $ repeat $ randomness_file $ verbosity $
                                  infinity $ const (List.rev t)) in
         match Cmdliner.Term.eval ~catch:false (cmd, crowbar_info) with
         | `Ok 0 -> exit 0
