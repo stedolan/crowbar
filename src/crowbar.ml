@@ -412,14 +412,16 @@ let print_status ppf status =
         pvs ()
         err ()
 
-let src_of_seed seed =
+let prng_state_of_seed seed =
   (* try to make this independent of word size *)
   let seed = Int64.( [|
        to_int (logand (of_int 0xffff) seed);
        to_int (logand (of_int 0xffff) (shift_right seed 16));
        to_int (logand (of_int 0xffff) (shift_right seed 32));
        to_int (logand (of_int 0xffff) (shift_right seed 48)) |]) in
-  Random (Random.State.make seed)
+  Random.State.make seed
+let src_of_seed seed =
+  Random (prng_state_of_seed seed)
 
 let run_test ~mode ~silent ?(verbose=false) (Test (name, gens, f)) =
   let show_status_line ?(clear=false) stat =
@@ -432,12 +434,13 @@ let run_test ~mode ~silent ?(verbose=false) (Test (name, gens, f)) =
   let status = match mode with
   | `Once state ->
      run_once gens f state
-  | `Repeat iters ->
+  | `Repeat (iters, seedseed) ->
      let worst_status = ref (TestPass (fun _ () -> ())) in
      let npass = ref 0 in
      let nbad = ref 0 in
+     let seedsrc = prng_state_of_seed seedseed in
      while !npass < iters && classify_status !worst_status = `Pass do
-       let seed = Random.int64 Int64.max_int in
+       let seed = Random.State.int64 seedsrc Int64.max_int in
        let state = { chan = src_of_seed seed;
                      buf = Bytes.make 256 '0';
                      offset = 0; len = 0 } in
@@ -446,7 +449,6 @@ let run_test ~mode ~silent ?(verbose=false) (Test (name, gens, f)) =
        | `Pass -> incr npass
        | `Bad -> incr nbad
        | `Fail ->
-          (* if not silent then pp ppf "failed with seed %016LX" seed; *)
           worst_status := status
        end;
      done;
@@ -475,33 +477,38 @@ let run_test ~mode ~silent ?(verbose=false) (Test (name, gens, f)) =
   status
 
 exception TestFailure
-let run_all_tests file verbosity infinity tests =
-  match file, infinity with
-  | None, false ->
-    (* limited-run QuickCheck mode *)
-    let failures = ref 0 in
-    let () = tests |> List.iter (fun t ->
-        match (run_test ~mode:(`Repeat 5000) ~silent:false t |> classify_status) with
-        | `Fail -> failures := !failures + 1
-        | _ -> ()
-      )
+let run_all_tests seed repeat file verbosity infinity tests =
+  match file with
+  | None ->
+    let seed = match seed with
+      | Some seed -> seed
+      | None -> Random.int64 (Int64.max_int)
     in
-    !failures
-  | None, true ->
-    (* infinite QuickCheck mode *)
-     let rec go ntests alltests tests = match tests with
-       | [] ->
-          go ntests alltests alltests
-       | t :: rest ->
-          if ntests mod 10000 = 0 then Printf.eprintf "\r%d%!" ntests;
-          match classify_status (run_test ~mode:(`Once { chan = src_of_seed (Random.int64 (Int64.max_int));
-                     buf = Bytes.make 256 '0';
-                     offset = 0; len = 0 })  ~silent:true ~verbose:true t) with
-          | `Fail -> Printf.printf "%d tests passed before first failure\n%!" ntests
-          | _ -> go (ntests + 1) alltests rest in
-     let () = go 0 tests tests in
-     1
-  | Some file, _ ->
+    if infinity then
+      (* infinite QuickCheck mode *)
+      let rec go ntests alltests tests = match tests with
+        | [] ->
+           go ntests alltests alltests
+        | t :: rest ->
+           if ntests mod 10000 = 0 then Printf.eprintf "\r%d%!" ntests;
+           let chan = src_of_seed seed in
+           let state = { chan ; buf = Bytes.make 256 '0'; offset = 0; len = 0 } in
+           match classify_status (run_test ~mode:(`Once state) ~silent:true ~verbose:true t) with
+           | `Fail -> Printf.printf "%d tests passed before first failure\n%!" ntests
+           | _ -> go (ntests + 1) alltests rest in
+      let () = go 0 tests tests in
+      1
+    else
+      (* limited-run QuickCheck mode *)
+      let failures = ref 0 in
+      let () = tests |> List.iter (fun t ->
+          match (run_test ~mode:(`Repeat (repeat, seed)) ~silent:false t |> classify_status) with
+          | `Fail -> failures := !failures + 1
+          | _ -> ()
+        )
+      in
+      !failures
+  | Some file ->
     (* AFL mode *)
     let verbose = List.length verbosity > 0 in
     let () = AflPersistent.run (fun () ->
@@ -549,6 +556,15 @@ let randomness_file =
     randomness for a predefined number of rounds." in
   Cmdliner.Arg.(value & pos 0 (some file) None & info [] ~doc ~docv:"FILE")
 
+let seed =
+  let doc = "The seed (an int64) for the PRNG. Use as an alternative to FILE
+    when running in non-AFL (quickcheck) mode." in
+  Cmdliner.Arg.(value & opt (some int64) None & info ["s"; "seed"] ~doc ~docv:"SEED")
+
+let repeat =
+  let doc = "The number of times to repeat the test in quick-check." in
+  Cmdliner.Arg.(value & opt int 5000 & info ["r"; "repeat"] ~doc ~docv:"REPEAT")
+
 let verbosity =
   let doc = "Print information on each test as it's conducted." in
   Cmdliner.Arg.(value & flag_all & info ["v"; "verbose"] ~doc ~docv:"VERBOSE")
@@ -569,7 +585,7 @@ let () =
       match t with
       | [] -> ()
       | t ->
-        let cmd = Cmdliner.Term.(const run_all_tests $ randomness_file $ verbosity $
+        let cmd = Cmdliner.Term.(const run_all_tests $ seed $ repeat $ randomness_file $ verbosity $
                                  infinity $ const (List.rev t)) in
         match Cmdliner.Term.eval ~catch:false (cmd, crowbar_info) with
         | `Ok 0 -> exit 0
