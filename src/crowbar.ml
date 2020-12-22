@@ -590,5 +590,5 @@ let () =
         match Cmdliner.Term.eval ~catch:false (cmd, crowbar_info) with
         | `Ok 0 -> exit 0
         | `Ok _ -> exit 1
-        | n -> Cmdliner.Term.exit n
+        | `Error _ | `Version | `Help as result -> Cmdliner.Term.exit result
     )
