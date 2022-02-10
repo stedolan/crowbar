@@ -1,8 +1,0 @@
-PKG afl-persistent
-PKG ocplib-endian
-PKG calendar
-PKG xmldiff
-PKG notty.unix
-PKG str
-PKG cmdliner
-B _build/**

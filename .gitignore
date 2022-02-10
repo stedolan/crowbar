@@ -1,5 +1,3 @@
-_build
-crowbar.install
-*.byte
-*.native
-.merlin
+_build/
+_opam/
+*.install
