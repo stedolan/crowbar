@@ -1,3 +1,6 @@
+(* Fix for OCaml 5.0 *)
+let () = Random.init 42
+
 type src = Random of Random.State.t | Fd of Unix.file_descr
 type state =
   {
