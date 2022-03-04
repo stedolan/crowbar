@@ -576,7 +576,7 @@ let infinity =
              test will never terminate without outside intervention." in
   Cmdliner.Arg.(value & flag & info ["i"] ~doc ~docv:"INFINITE")
 
-let crowbar_info = Cmdliner.Term.info @@ Filename.basename Sys.argv.(0)
+let crowbar_info = Cmdliner.Cmd.info @@ Filename.basename Sys.argv.(0)
 
 let () =
   at_exit (fun () ->
@@ -587,8 +587,5 @@ let () =
       | t ->
         let cmd = Cmdliner.Term.(const run_all_tests $ seed $ repeat $ randomness_file $ verbosity $
                                  infinity $ const (List.rev t)) in
-        match Cmdliner.Term.eval ~catch:false (cmd, crowbar_info) with
-        | `Ok 0 -> exit 0
-        | `Ok _ -> exit 1
-        | n -> Cmdliner.Term.exit n
+        exit @@ Cmdliner.Cmd.eval' ~catch:false (Cmdliner.Cmd.v crowbar_info cmd)
     )
