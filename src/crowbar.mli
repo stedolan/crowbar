@@ -118,7 +118,10 @@ val const : 'a -> 'a gen
 (** [const a] always generates [a]. *)
 
 val choose : 'a gen list -> 'a gen
-(** [choose gens] chooses a generator arbitrarily from [gens]. *)
+(** [choose gens] chooses a generator arbitrarily from the non-empty list [gens].
+    When the generator runs out of fuel, it will always pick the first element
+    of [gens], which should yield a small default constant.
+    [choose gens] will raise [Invalid_argument] if [gens] is an empty list. *)
 
 val option : 'a gen -> 'a option gen
 (** [option gen] generates either [None] or [Some x], where [x] is the item
