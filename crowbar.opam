@@ -14,7 +14,6 @@ bug-reports: "https://github.com/stedolan/crowbar/issues"
 depends: [
   "dune" {>= "2.9"}
   "ocaml" {>= "4.08"}
-  "ocplib-endian"
   "cmdliner" {>= "1.1.0"}
   "afl-persistent" {>= "1.1"}
   "calendar" {>= "2.00" & with-test}
