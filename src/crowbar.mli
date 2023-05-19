@@ -249,3 +249,20 @@ val check_eq : ?pp:('a printer) -> ?cmp:('a -> 'a -> int) -> ?eq:('a -> 'a -> bo
     If [pp] is not provided, a best-effort printer will be generated from the
     printers for primitive generators and any printers registered with
     [with_printer] and used. *)
+
+
+(** {1:syntax Syntax module } *)
+module Syntax : sig
+    val ( let+ ) : 'a gen -> ('a -> 'b) -> 'b gen
+    (** [let+ x = gen in e] is equivalent to [map [ gen ] (fun x -> e)]. *)
+
+    val ( let* ) : 'a gen -> ('a -> 'b gen) -> 'b gen
+    (** Equivalent to {!dynamic_bind}.
+        [let* x = gen in e] is equivalent to [dynamic_bind gen (fun x -> e)]. *)
+
+    val ( and+ ) : 'a gen -> 'b gen -> ('a * 'b) gen
+    (** Equivalent to {!pair}.
+        [let+ x = gen_x and+ y = gen_y and+ z = gen_z in e]
+        is equivalent to
+        [ map [pair (pair gen_x gen_y) gen_z)] (fun ((x, y), z) -> e) ]. *)
+end
