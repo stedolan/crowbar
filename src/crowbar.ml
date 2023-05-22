@@ -37,7 +37,7 @@ let unlazy f = { strategy = Unlazy f; small_examples = [] }
 
 let fix f =
   let rec lazygen = lazy (f (unlazy lazygen)) in
-  unlazy lazygen
+  Lazy.force lazygen
 
 let map (type f) (type a) (gens : (f, a) gens) (f : f) =
   { strategy = Map (gens, f); small_examples = match gens with [] -> [f] | _ -> [] }
