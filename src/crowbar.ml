@@ -148,22 +148,22 @@ let int8 = with_printer pp_int (map [uint8] (fun n -> n - 128))
 
 let read_uint16 src =
   let off = getbytes src 2 in
-  EndianBytes.LittleEndian.get_uint16 src.buf off
+  Bytes.get_uint16_le src.buf off
 
 let read_int16 src =
   let off = getbytes src 2 in
-  EndianBytes.LittleEndian.get_int16 src.buf off
+  Bytes.get_int16_le src.buf off
 
 let uint16 = with_printer pp_int (primitive read_uint16 0)
 let int16 = with_printer pp_int (primitive read_int16 0)
 
 let read_int32 src =
   let off = getbytes src 4 in
-  EndianBytes.LittleEndian.get_int32 src.buf off
+  Bytes.get_int32_le src.buf off
 
 let read_int64 src =
   let off = getbytes src 8 in
-  EndianBytes.LittleEndian.get_int64 src.buf off
+  Bytes.get_int64_le src.buf off
 
 let int32 = with_printer pp_int32 (primitive read_int32 0l)
 let int64 = with_printer pp_int64 (primitive read_int64 0L)
@@ -177,7 +177,8 @@ let int =
 
 let float = with_printer pp_float (primitive (fun src ->
   let off = getbytes src 8 in
-  EndianBytes.LittleEndian.get_double src.buf off) 0.)
+  let i64 = Bytes.get_int64_le src.buf off in
+  Int64.float_of_bits i64) 0.)
 
 let char = with_printer pp_char (primitive read_char 'a')
 
