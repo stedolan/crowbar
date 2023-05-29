@@ -593,3 +593,9 @@ let () =
                                  infinity $ const (List.rev t)) in
         exit @@ Cmdliner.Cmd.eval' ~catch:false (Cmdliner.Cmd.v crowbar_info cmd)
     )
+
+module Syntax = struct
+  let ( let* ) = dynamic_bind
+  let ( let+ ) gen map_fn = map [ gen ] map_fn
+  let ( and+ ) = pair
+end
