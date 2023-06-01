@@ -25,7 +25,7 @@ type 'a strat =
 
 and 'a gen =
   { strategy: 'a strat;
-    small_examples: 'a list; }
+    small_example: 'a Lazy.t; }
 
 and ('k, 'res) gens =
   | [] : ('res, 'res) gens
@@ -33,23 +33,36 @@ and ('k, 'res) gens =
 
 type nonrec +'a list = 'a list = [] | (::) of 'a * 'a list
 
-let unlazy f = { strategy = Unlazy f; small_examples = [] }
+let example gen = Lazy.force gen.small_example
+
+let unlazy f = { strategy = Unlazy f; small_example = lazy (example (Lazy.force f)) }
 
 let fix f =
   let rec lazygen = lazy (f (unlazy lazygen)) in
   Lazy.force lazygen
 
-let map (type f) (type a) (gens : (f, a) gens) (f : f) =
-  { strategy = Map (gens, f); small_examples = match gens with [] -> [f] | _ -> [] }
+let rec apply_small : type f a. (f, a) gens -> f -> a =
+  fun gens f ->
+  match gens with
+  | [] -> f
+  | h :: t -> apply_small t (f (example h))
 
-let dynamic_bind m f = {strategy = Bind(m, f); small_examples = [] }
+let map (type f) (type a) (gens : (f, a) gens) (f : f) =
+  { strategy = Map (gens, f); small_example = lazy (apply_small gens f) }
+
+let dynamic_bind m f =
+  { strategy = Bind(m, f); small_example = lazy (example (f (example m))) }
 
 let const x = map [] x
-let choose gens = { strategy = Choose gens; small_examples = List.map (fun x -> x.small_examples) gens |> List.concat }
-let option gen = { strategy = Option gen; small_examples = [None] }
-let list gen = { strategy = List gen; small_examples = [[]] }
-let list1 gen = { strategy = List1 gen; small_examples = List.map (fun x -> [x]) gen.small_examples }
-let primitive f ex = { strategy = Primitive f; small_examples = [ex] }
+
+let choose gens = match gens with
+  | [] -> raise (Invalid_argument "Crowbar.choose: argument must be a non-empty list");
+  | h :: _ -> { strategy = Choose gens; small_example = h.small_example }
+
+let option gen = { strategy = Option gen; small_example = Lazy.from_val None }
+let list gen = { strategy = List gen; small_example = Lazy.from_val [] }
+let list1 gen = { strategy = List1 gen; small_example = lazy [example gen] }
+let primitive f ex = { strategy = Primitive f; small_example = Lazy.from_val ex }
 
 let pair gena genb =
   map (gena :: genb :: []) (fun a b -> (a, b))
@@ -61,7 +74,7 @@ let concat_gen_list sep l =
     ) h t
   | [] -> const ""
 
-let with_printer pp gen = {strategy = Print (pp, gen); small_examples = gen.small_examples }
+let with_printer pp gen = {strategy = Print (pp, gen); small_example = gen.small_example }
 
 let result gena genb =
   choose [
@@ -244,7 +257,7 @@ exception GenFailed of exn * Printexc.raw_backtrace * unit printer
 
 let rec generate : type a . int -> state -> a gen -> a * unit printer =
   fun size input gen ->
-  if size <= 1 && gen.small_examples <> [] then List.hd gen.small_examples, fun ppf () -> pp ppf "?" else
+  if size <= 1 then example gen, fun ppf () -> pp ppf "?" else
   match gen.strategy with
   | Choose gens ->
      (* FIXME: better distribution? *)
