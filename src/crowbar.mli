@@ -140,6 +140,14 @@ val list1 : 'a gen -> 'a list gen
 (** [list1 gen] makes non-empty list generators. For potentially empty lists,
     use {!list}.*)
 
+val array : 'a gen -> 'a array gen
+(** [array gen] makes a generator for arrays using [gen]. Arrays may be empty; for
+    non-empty arrays, use {!array1}. *)
+
+val array1 : 'a gen -> 'a array gen
+(** [array1 gen] makes non-empty array generators. For potentially empty arrays,
+    use {!array}.*)
+
 val shuffle : 'a list -> 'a list gen
 (** [shuffle l] generates random permutations of [l]. *)
 
