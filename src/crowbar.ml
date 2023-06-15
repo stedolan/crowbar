@@ -19,6 +19,8 @@ type 'a strat =
   | Option : 'a gen -> 'a option strat
   | List : 'a gen -> 'a list strat
   | List1 : 'a gen -> 'a list strat
+  | Array : 'a gen -> 'a array strat
+  | Array1 : 'a gen -> 'a array strat
   | Unlazy of 'a gen Lazy.t
   | Primitive of (state -> 'a)
   | Print of 'a printer * 'a gen
@@ -49,6 +51,8 @@ let choose gens = { strategy = Choose gens; small_examples = List.map (fun x -> 
 let option gen = { strategy = Option gen; small_examples = [None] }
 let list gen = { strategy = List gen; small_examples = [[]] }
 let list1 gen = { strategy = List1 gen; small_examples = List.map (fun x -> [x]) gen.small_examples }
+let array gen = { strategy = Array gen; small_examples = [[||]] }
+let array1 gen = { strategy = Array1 gen; small_examples = List.map (fun x -> [|x|]) gen.small_examples }
 let primitive f ex = { strategy = Primitive f; small_examples = [ex] }
 
 let pair gena genb =
@@ -78,10 +82,21 @@ let pp_float ppf f = pp ppf "%f" f
 let pp_bool ppf b = pp ppf "%b" b
 let pp_char ppf c = pp ppf "%c" c
 let pp_uchar ppf c = pp ppf "U+%04x" (Uchar.to_int c)
-let pp_string ppf s = pp ppf "\"%s\"" (String.escaped s)
+let pp_string ppf s = pp ppf "%S" s
+(* taken from OCaml stdlib *)
+let pp_print_iter ~pp_sep iter pp_v ppf v =
+  let is_first = ref true in
+  let pp_v v =
+    if !is_first then is_first := false else pp_sep ppf ();
+    pp_v ppf v
+  in
+  iter pp_v v
 let pp_list pv ppf l =
   pp ppf "@[<hv 1>[%a]@]"
-     (Format.pp_print_list ~pp_sep:(fun ppf () -> pp ppf ";@ ") pv) l
+     (pp_print_iter ~pp_sep:(fun ppf () -> pp ppf ";@ ") List.iter pv) l
+let pp_array pv ppf a =
+  pp ppf "@[<hv 1>[|%a|]@]"
+  (pp_print_iter ~pp_sep:(fun ppf () -> pp ppf ";@ ") Array.iter pv) a
 let pp_option pv ppf = function
   | None ->
       Format.fprintf ppf "None"
@@ -291,6 +306,14 @@ let rec generate : type a . int -> state -> a gen -> a * unit printer =
      let elems = generate_list1 size input gen in
      List.map fst elems,
        fun ppf () -> pp_list (fun ppf (_, pv) -> pv ppf ()) ppf elems
+  | Array gen ->
+    let elems = generate_list size input gen in
+    let elems = Array.of_list elems in
+    Array.map fst elems, fun ppf () -> pp_array (fun ppf (_, pv) -> pv ppf ()) ppf elems
+  | Array1 gen ->
+    let elems = generate_list1 size input gen in
+    let elems = Array.of_list elems in
+    Array.map fst elems, fun ppf () -> pp_array (fun ppf (_, pv) -> pv ppf ()) ppf elems
   | Primitive gen ->
      gen input, fun ppf () -> pp ppf "?"
   | Unlazy gen ->
