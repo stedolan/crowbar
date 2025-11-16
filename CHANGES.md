@@ -1,3 +1,10 @@
+v0.2.2 (16 November 2025)
+-------------------------
+
+Adds Syntax module, and array/array1 combinators.
+Improves stability for lazy generators.
+Removes ocplib-endian dependency.
+
 v0.2.1 (04 March 2022)
 ---------------------
 
