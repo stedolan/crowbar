@@ -504,7 +504,7 @@ let run_test ~mode ~silent ?(verbose=false) (Test (name, gens, f)) =
   status
 
 exception TestFailure
-let run_all_tests seed repeat file verbosity infinity tests =
+let run_all_tests ~seed ~repeat ~file ~verbosity ~infinity ~tests =
   match file with
   | None ->
     let seed = match seed with
@@ -612,8 +612,16 @@ let () =
       match t with
       | [] -> ()
       | t ->
-        let cmd = Cmdliner.Term.(const run_all_tests $ seed $ repeat $ randomness_file $ verbosity $
-                                 infinity $ const (List.rev t)) in
+        let cmd =
+          let open Cmdliner.Term.Syntax in
+          let+ seed = seed
+          and+ repeat = repeat
+          and+ file = randomness_file
+          and+ verbosity = verbosity
+          and+ infinity = infinity
+          in
+          run_all_tests ~seed ~repeat ~file ~verbosity ~infinity ~tests:(List.rev t)
+        in
         exit @@ Cmdliner.Cmd.eval' ~catch:false (Cmdliner.Cmd.v crowbar_info cmd)
     )
 
