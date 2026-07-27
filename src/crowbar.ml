@@ -504,7 +504,7 @@ let run_test ~mode ~silent ?(verbose=false) (Test (name, gens, f)) =
   status
 
 exception TestFailure
-let run_all_tests seed repeat file verbosity infinity tests =
+let run_all_tests ~seed ~repeat ~file ~verbosity ~infinity ~tests =
   match file with
   | None ->
     let seed = match seed with
@@ -603,17 +603,46 @@ let infinity =
              test will never terminate without outside intervention." in
   Cmdliner.Arg.(value & flag & info ["i"] ~doc ~docv:"INFINITE")
 
+let test_prefixes =
+  let doc = "Only run tests selected with this flag" in
+  Cmdliner.Arg.(value & opt_all string [] & info ["t"] ~doc ~docv:"NAME_PREFIX")
+  
+
 let crowbar_info = Cmdliner.Cmd.info @@ Filename.basename Sys.argv.(0)
 
 let () =
   at_exit (fun () ->
-      let t = !registered_tests in
+      let t = List.rev !registered_tests in
       registered_tests := [];
       match t with
       | [] -> ()
-      | t ->
-        let cmd = Cmdliner.Term.(const run_all_tests $ seed $ repeat $ randomness_file $ verbosity $
-                                 infinity $ const (List.rev t)) in
+      | _ :: _ ->
+        let cmd =
+          let open Cmdliner.Term.Syntax in
+          let+ seed = seed
+          and+ repeat = repeat
+          and+ file = randomness_file
+          and+ verbosity = verbosity
+          and+ infinity = infinity
+          and+ test_prefixes = test_prefixes
+          in
+          let selected_tests =
+            match test_prefixes with
+            | [] -> t
+            | _ :: _ ->
+              List.filter (fun (Test (name, _, _)) ->
+                List.exists (fun prefix -> String.starts_with ~prefix name)
+                  test_prefixes) t
+          in
+          match selected_tests with
+          | [] ->
+            Printf.eprintf "No tests matching %s\n" (String.concat "," test_prefixes);
+            Printf.eprintf "The test names are:\n";
+            List.iter (fun (Test (name, _, _)) -> Printf.eprintf "  %s\n" name) t;
+            1
+          | _ :: _ ->
+            run_all_tests ~seed ~repeat ~file ~verbosity ~infinity ~tests:selected_tests
+        in
         exit @@ Cmdliner.Cmd.eval' ~catch:false (Cmdliner.Cmd.v crowbar_info cmd)
     )
 
