@@ -18,7 +18,7 @@
 "\| [afl-fuzz](http://lcamtuf.coredump.cx/afl/).
  )
  (depends
-  (ocaml (>= "4.08"))
+  (ocaml (>= "4.13"))
   (cmdliner (>= 1.3.0))
   (afl-persistent (>= "1.1"))
   ("calendar" (and (>= "2.00") :with-test))
