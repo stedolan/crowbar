@@ -202,6 +202,7 @@ val pp_bool : bool printer
 val pp_string : string printer
 val pp_list : 'a printer -> 'a list printer
 val pp_option : 'a printer -> 'a option printer
+val pp_array : 'a printer -> 'a array printer
 
 (** {1:testing Testing} *)
 
